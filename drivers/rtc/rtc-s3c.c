@@ -298,11 +298,6 @@ static int s3c_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	s3c_rtc_setaie(alrm->enabled);
 
-	if (alrm->enabled)
-		enable_irq_wake(s3c_rtc_alarmno);
-	else
-		disable_irq_wake(s3c_rtc_alarmno);
-
 	return 0;
 }
 
@@ -495,8 +490,6 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
  	pr_debug("s3c2410_rtc: RTCCON=%02x\n",
 		 readb(s3c_rtc_base + S3C2410_RTCCON));
 
-	s3c_rtc_setfreq(&pdev->dev, 1);
-
 	device_init_wakeup(&pdev->dev, 1);
 
 	/* register RTC and exit */
@@ -510,14 +503,17 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
 		goto err_nortc;
 	}
 
+	s3c_rtc_cpu_type = platform_get_device_id(pdev)->driver_data;
+
 	if (s3c_rtc_cpu_type == TYPE_S3C64XX)
 		rtc->max_user_freq = 32768;
 	else
 		rtc->max_user_freq = 128;
 
-	s3c_rtc_cpu_type = platform_get_device_id(pdev)->driver_data;
-
 	platform_set_drvdata(pdev, rtc);
+
+	s3c_rtc_setfreq(&pdev->dev, 1);
+
 	return 0;
 
  err_nortc:
@@ -546,6 +542,10 @@ static int s3c_rtc_suspend(struct platform_device *pdev, pm_message_t state)
 		ticnt_en_save &= S3C64XX_RTCCON_TICEN;
 	}
 	s3c_rtc_enable(pdev, 0);
+
+	if (device_may_wakeup(&pdev->dev))
+		enable_irq_wake(s3c_rtc_alarmno);
+
 	return 0;
 }
 
@@ -559,6 +559,10 @@ static int s3c_rtc_resume(struct platform_device *pdev)
 		tmp = readb(s3c_rtc_base + S3C2410_RTCCON);
 		writeb(tmp | ticnt_en_save, s3c_rtc_base + S3C2410_RTCCON);
 	}
+
+	if (device_may_wakeup(&pdev->dev))
+		disable_irq_wake(s3c_rtc_alarmno);
+
 	return 0;
 }
 #else

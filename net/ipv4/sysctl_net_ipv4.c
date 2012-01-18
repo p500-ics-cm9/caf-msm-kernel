@@ -5,6 +5,11 @@
  * Added /proc/sys/net/ipv4 directory entry (empty =) ). [MS]
  */
 
+/* ========================================================================================
+when         who        what, where, why                             comment tag
+--------     ----       -----------------------------                ----------------------
+2011-03-25   wangcheng Set the tcp windows size >64k         ZTE_WANGCHENG_TCP_20110325
+==========================================================================================*/
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/sysctl.h>
@@ -511,6 +516,17 @@ static struct ctl_table ipv4_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec
 	},
+	//ZTE_WANGCHENG_TCP_20110325 start
+#ifdef CONFIG_ZTE_PLATFORM
+	{
+		.procname	= "tcp_force_windows_size_64k",
+		.data		= &sysctl_tcp_force_windows_size_64k,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
+	},
+#endif
+  //ZTE_WANGCHENG_TCP_20110325 end
 #ifdef CONFIG_NET_DMA
 	{
 		.procname	= "tcp_dma_copybreak",

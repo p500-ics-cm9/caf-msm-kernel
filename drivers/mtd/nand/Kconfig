@@ -1,12 +1,9 @@
-menuconfig MTD_NAND
-	tristate "NAND Device Support"
+config MTD_NAND_IDS
+	tristate "Include chip ids for known NAND devices."
 	depends on MTD
-	select MTD_NAND_IDS
-	select MTD_NAND_ECC
 	help
-	  This enables support for accessing all type of NAND flash
-	  devices. For further information see
-	  <http://www.linux-mtd.infradead.org/doc/nand.html>.
+	  Useful for NAND drivers that do not use the NAND subsystem but
+	  still like to take advantage of the known chip information.
 
 config MTD_NAND_ECC
 	tristate
@@ -18,6 +15,17 @@ config MTD_NAND_ECC_SMC
 	help
 	  Software ECC according to the Smart Media Specification.
 	  The original Linux implementation had byte 0 and 1 swapped.
+
+
+menuconfig MTD_NAND
+	tristate "NAND Device Support"
+	depends on MTD
+	select MTD_NAND_IDS
+	select MTD_NAND_ECC
+	help
+	  This enables support for accessing all type of NAND flash
+	  devices. For further information see
+	  <http://www.linux-mtd.infradead.org/doc/nand.html>.
 
 if MTD_NAND
 
@@ -120,9 +128,6 @@ config MTD_NAND_OMAP_PREFETCH_DMA
 	 The GPMC PREFETCH engine can be configured eigther in MPU interrupt mode
 	 or in DMA interrupt mode.
 	 Say y for DMA mode or MPU mode will be used
-
-config MTD_NAND_IDS
-	tristate
 
 config MTD_NAND_RICOH
 	tristate "Ricoh xD card reader"

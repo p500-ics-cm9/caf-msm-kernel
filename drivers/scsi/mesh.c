@@ -2036,8 +2036,11 @@ MODULE_DEVICE_TABLE (of, mesh_match);
 
 static struct macio_driver mesh_driver = 
 {
+	.driver = {
 	.name 		= "mesh",
-	.match_table	= mesh_match,
+		.owner		= THIS_MODULE,
+		.of_match_table	= mesh_match,
+	},
 	.probe		= mesh_probe,
 	.remove		= mesh_remove,
 	.shutdown	= mesh_shutdown,

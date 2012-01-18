@@ -177,6 +177,7 @@ static u64 construct_eptp(unsigned long root_hpa);
 static DEFINE_PER_CPU(struct vmcs *, vmxarea);
 static DEFINE_PER_CPU(struct vmcs *, current_vmcs);
 static DEFINE_PER_CPU(struct list_head, vcpus_on_cpu);
+static DEFINE_PER_CPU(struct desc_ptr, host_gdt);
 
 static unsigned long *vmx_io_bitmap_a;
 static unsigned long *vmx_io_bitmap_b;
@@ -812,6 +813,7 @@ static void __vmx_load_host_state(struct vcpu_vmx *vmx)
 		wrmsrl(MSR_KERNEL_GS_BASE, vmx->msr_host_kernel_gs_base);
 	}
 #endif
+	load_gdt(&__get_cpu_var(host_gdt));
 }
 
 static void vmx_load_host_state(struct vcpu_vmx *vmx)
@@ -1314,6 +1316,8 @@ static int hardware_enable(void *garbage)
 
 	ept_sync_global();
 
+	store_gdt(&__get_cpu_var(host_gdt));
+
 	return 0;
 }
 
@@ -1744,18 +1748,15 @@ static void enter_lmode(struct kvm_vcpu *vcpu)
 			     (guest_tr_ar & ~AR_TYPE_MASK)
 			     | AR_TYPE_BUSY_64_TSS);
 	}
-	vcpu->arch.efer |= EFER_LMA;
-	vmx_set_efer(vcpu, vcpu->arch.efer);
+	vmx_set_efer(vcpu, vcpu->arch.efer | EFER_LMA);
 }
 
 static void exit_lmode(struct kvm_vcpu *vcpu)
 {
-	vcpu->arch.efer &= ~EFER_LMA;
-
 	vmcs_write32(VM_ENTRY_CONTROLS,
 		     vmcs_read32(VM_ENTRY_CONTROLS)
 		     & ~VM_ENTRY_IA32E_MODE);
-	vmx_set_efer(vcpu, vcpu->arch.efer);
+	vmx_set_efer(vcpu, vcpu->arch.efer & ~EFER_LMA);
 }
 
 #endif

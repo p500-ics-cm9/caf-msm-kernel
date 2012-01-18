@@ -1103,7 +1103,7 @@ static int nfs_open_revalidate(struct dentry *dentry, struct nameidata *nd)
 	if ((openflags & (O_CREAT|O_EXCL)) == (O_CREAT|O_EXCL))
 		goto no_open_dput;
 	/* We can't create new files, or truncate existing ones here */
-	openflags &= ~(O_CREAT|O_TRUNC);
+	openflags &= ~(O_CREAT|O_EXCL|O_TRUNC);
 
 	/*
 	 * Note: we're not holding inode->i_mutex and so may be racing with
@@ -1710,7 +1710,7 @@ static void nfs_access_free_list(struct list_head *head)
 	}
 }
 
-int nfs_access_cache_shrinker(int nr_to_scan, gfp_t gfp_mask)
+int nfs_access_cache_shrinker(struct shrinker *shrink, int nr_to_scan, gfp_t gfp_mask)
 {
 	LIST_HEAD(head);
 	struct nfs_inode *nfsi;

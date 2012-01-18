@@ -651,7 +651,7 @@ EXPORT_SYMBOL(__pcmcia_request_exclusive_irq);
 #ifdef CONFIG_PCMCIA_PROBE
 
 /* mask of IRQs already reserved by other cards, we should avoid using them */
-static u8 pcmcia_used_irq[NR_IRQS];
+static u8 pcmcia_used_irq[32];
 
 static irqreturn_t test_action(int cpl, void *dev_id)
 {
@@ -673,6 +673,9 @@ static int pcmcia_setup_isa_irq(struct pcmcia_device *p_dev, int type)
 
 	for (try = 0; try < 64; try++) {
 		irq = try % 32;
+
+		if (irq > NR_IRQS)
+			continue;
 
 		/* marked as available by driver, not blocked by userspace? */
 		if (!((mask >> irq) & 1))
@@ -857,8 +860,10 @@ void pcmcia_disable_device(struct pcmcia_device *p_dev)
 {
 	pcmcia_release_configuration(p_dev);
 	pcmcia_release_io(p_dev, &p_dev->io);
-	if (p_dev->_irq)
+	if (p_dev->_irq) {
 		free_irq(p_dev->irq, p_dev->priv);
+		p_dev->_irq = 0;
+	}
 	if (p_dev->win)
 		pcmcia_release_window(p_dev, p_dev->win);
 }

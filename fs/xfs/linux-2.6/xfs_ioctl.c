@@ -679,10 +679,9 @@ xfs_ioc_bulkstat(
 		error = xfs_bulkstat_single(mp, &inlast,
 						bulkreq.ubuffer, &done);
 	else	/* XFS_IOC_FSBULKSTAT */
-		error = xfs_bulkstat(mp, &inlast, &count,
-			(bulkstat_one_pf)xfs_bulkstat_one, NULL,
+		error = xfs_bulkstat(mp, &inlast, &count, xfs_bulkstat_one,
 			sizeof(xfs_bstat_t), bulkreq.ubuffer,
-			BULKSTAT_FG_QUICK, &done);
+				     &done);
 
 	if (error)
 		return -error;
@@ -794,6 +793,8 @@ xfs_ioc_fsgetxattr(
 	void			__user *arg)
 {
 	struct fsxattr		fa;
+
+	memset(&fa, 0, sizeof(struct fsxattr));
 
 	xfs_ilock(ip, XFS_ILOCK_SHARED);
 	fa.fsx_xflags = xfs_ip2xflags(ip);

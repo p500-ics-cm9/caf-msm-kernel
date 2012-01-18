@@ -584,9 +584,11 @@ static struct of_device_id rackmeter_match[] = {
 };
 
 static struct macio_driver rackmeter_driver = {
+	.driver = {
 	.name = "rackmeter",
 	.owner = THIS_MODULE,
-	.match_table = rackmeter_match,
+		.of_match_table = rackmeter_match,
+	},
 	.probe = rackmeter_probe,
 	.remove = __devexit_p(rackmeter_remove),
 	.shutdown = rackmeter_shutdown,

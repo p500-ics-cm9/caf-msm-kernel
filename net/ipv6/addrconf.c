@@ -1580,6 +1580,9 @@ static int ipv6_generate_eui64(u8 *eui, struct net_device *dev)
 		return addrconf_ifid_infiniband(eui, dev);
 	case ARPHRD_SIT:
 		return addrconf_ifid_sit(eui, dev);
+	case ARPHRD_RAWIP:
+		get_random_bytes(eui, 8);
+		return 0;
 	}
 	return -1;
 }
@@ -1760,7 +1763,10 @@ static struct inet6_dev *addrconf_add_dev(struct net_device *dev)
 
 	idev = ipv6_find_idev(dev);
 	if (!idev)
-		return NULL;
+		return ERR_PTR(-ENOBUFS);
+
+	if (idev->cnf.disable_ipv6)
+		return ERR_PTR(-EACCES);
 
 	/* Add default multicast route */
 	addrconf_add_mroute(dev);
@@ -2129,8 +2135,9 @@ static int inet6_addr_add(struct net *net, int ifindex, struct in6_addr *pfx,
 	if (!dev)
 		return -ENODEV;
 
-	if ((idev = addrconf_add_dev(dev)) == NULL)
-		return -ENOBUFS;
+	idev = addrconf_add_dev(dev);
+	if (IS_ERR(idev))
+		return PTR_ERR(idev);
 
 	scope = ipv6_addr_scope(pfx);
 
@@ -2371,13 +2378,14 @@ static void addrconf_dev_config(struct net_device *dev)
 	    (dev->type != ARPHRD_FDDI) &&
 	    (dev->type != ARPHRD_IEEE802_TR) &&
 	    (dev->type != ARPHRD_ARCNET) &&
+	    (dev->type != ARPHRD_RAWIP) &&
 	    (dev->type != ARPHRD_INFINIBAND)) {
 		/* Alas, we support only Ethernet autoconfiguration. */
 		return;
 	}
 
 	idev = addrconf_add_dev(dev);
-	if (idev == NULL)
+	if (IS_ERR(idev))
 		return;
 
 	memset(&addr, 0, sizeof(struct in6_addr));
@@ -2468,7 +2476,7 @@ static void addrconf_ip6_tnl_config(struct net_device *dev)
 	ASSERT_RTNL();
 
 	idev = addrconf_add_dev(dev);
-	if (!idev) {
+	if (IS_ERR(idev)) {
 		printk(KERN_DEBUG "init ip6-ip6: add_dev failed\n");
 		return;
 	}

@@ -1208,6 +1208,18 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 	 * and flush any outstanding URBs.
 	 */
 	} else {
+#ifdef CONFIG_USB_OTG
+		/* OTG supplement Rev 2.0 section 6.3
+		 * Unless an A-device enables b_hnp_enable before entering
+		 * suspend it shall also continue polling while the bus is
+		 * suspended.
+		 * We don't need to do HNP polling, as we are going to enable
+		 * b_hnp_enable before suspending.
+		 */
+		if (udev->bus->hnp_support &&
+			udev->portnum == udev->bus->otg_port)
+			cancel_delayed_work(&udev->bus->hnp_polling);
+#endif
 		udev->can_submit = 0;
 		for (i = 0; i < 16; ++i) {
 			usb_hcd_flush_endpoint(udev, udev->ep_out[i]);
@@ -1270,10 +1282,47 @@ static int usb_resume_both(struct usb_device *udev, pm_message_t msg)
 	return status;
 }
 
+#ifdef CONFIG_USB_OTG
+void usb_hnp_polling_work(struct work_struct *work)
+{
+	int ret;
+	struct usb_bus *bus =
+		container_of(work, struct usb_bus, hnp_polling.work);
+	struct usb_device *udev = bus->root_hub->children[bus->otg_port - 1];
+	u8 *status = kmalloc(sizeof(*status), GFP_KERNEL);
+
+	if (!status)
+		return;
+
+	ret = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0),
+		USB_REQ_GET_STATUS, USB_DIR_IN | USB_RECIP_DEVICE,
+		0, OTG_STATUS_SELECTOR, status, sizeof(*status),
+		USB_CTRL_GET_TIMEOUT);
+	if (ret < 0) {
+		/* Peripheral may not be supporting HNP polling */
+		dev_info(&udev->dev, "HNP polling failed. status %d\n", ret);
+		goto out;
+	}
+
+	/* Spec says host must suspend the bus with in 2 sec. */
+	if (*status & (1 << HOST_REQUEST_FLAG)) {
+		do_unbind_rebind(udev, DO_UNBIND);
+		udev->do_remote_wakeup = device_may_wakeup(&udev->dev);
+		ret = usb_suspend_both(udev, PMSG_USER_SUSPEND);
+		if (ret)
+			dev_info(&udev->dev, "suspend failed\n");
+	} else {
+		schedule_delayed_work(&bus->hnp_polling,
+			msecs_to_jiffies(THOST_REQ_POLL));
+	}
+out:
+	kfree(status);
+}
+#endif
+
 static void choose_wakeup(struct usb_device *udev, pm_message_t msg)
 {
-	int			w, i;
-	struct usb_interface	*intf;
+	int	w;
 
 	/* Remote wakeup is needed only when we actually go to sleep.
 	 * For things like FREEZE and QUIESCE, if the device is already
@@ -1285,16 +1334,10 @@ static void choose_wakeup(struct usb_device *udev, pm_message_t msg)
 		return;
 	}
 
-	/* If remote wakeup is permitted, see whether any interface drivers
+	/* Enable remote wakeup if it is allowed, even if no interface drivers
 	 * actually want it.
 	 */
-	w = 0;
-	if (device_may_wakeup(&udev->dev) && udev->actconfig) {
-		for (i = 0; i < udev->actconfig->desc.bNumInterfaces; i++) {
-			intf = udev->actconfig->interface[i];
-			w |= intf->needs_remote_wakeup;
-		}
-	}
+	w = device_may_wakeup(&udev->dev);
 
 	/* If the device is autosuspended with the wrong wakeup setting,
 	 * autoresume now so the setting can be changed.
@@ -1328,6 +1371,7 @@ int usb_resume(struct device *dev, pm_message_t msg)
 
 	/* For all other calls, take the device back to full power and
 	 * tell the PM core in case it was autosuspended previously.
+	 * Unbind the interfaces that will need rebinding later.
 	 */
 	} else {
 		status = usb_resume_both(udev, msg);
@@ -1336,6 +1380,7 @@ int usb_resume(struct device *dev, pm_message_t msg)
 			pm_runtime_set_active(dev);
 			pm_runtime_enable(dev);
 			udev->last_busy = jiffies;
+			do_unbind_rebind(udev, DO_REBIND);
 		}
 	}
 

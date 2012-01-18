@@ -1,4 +1,13 @@
 #
+#========================================================================================
+#when         who        what, where, why                         comment tag
+#--------     ----       -------------------------------------    --------------------------
+#2011-07-15   xym        add cypress CY8CTST241 touchscreen       ZTE_TS_XYM_20110715
+#2011-07-11   xym        add FocalTech new drvier and head file   ZTE_TS_XYM_20110711
+#2011-01-24   zfj        add FocalTech driver                     ZTE_TS_ZFJ_20110124
+#2010-07-03   wly        update firmware                          ZTE_WLY_CRDB00517999
+#2010-03-29   wly        add cypress driver                       ZTE_TOUCH_WLY_001
+#========================================================================================
 # Touchscreen driver configuration
 #
 menuconfig INPUT_TOUCHSCREEN
@@ -98,6 +107,24 @@ config TOUCHSCREEN_BITSY
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called h3600_ts_input.
+#ZTE_TS_XYM_20110715 for cypress driver begin
+config TOUCHSCREEN_CY8CTST241
+       tristate "cy8ctst241 touchscreen"
+       default n 
+
+
+	help
+	  Say Y here if you have a cy8ctst241 capacitive touchscreen on
+	  an AAVA device.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cy8ctmg110_ts.
+
+
+
+#ZTE_TS_XYM_20110715 for cypress driver end
 
 config TOUCHSCREEN_DA9034
 	tristate "Touchscreen support for Dialog Semiconductor DA9034"
@@ -156,7 +183,7 @@ config TOUCHSCREEN_FUJITSU
 config TOUCHSCREEN_S3C2410
 	tristate "Samsung S3C2410/generic touchscreen input driver"
 	depends on ARCH_S3C2410 || SAMSUNG_DEV_TS
-	select S3C24XX_ADC
+	select S3C_ADC
 	help
 	  Say Y here if you have the s3c2410 touchscreen.
 
@@ -292,6 +319,27 @@ config TOUCHSCREEN_PENMOUNT
 	  To compile this driver as a module, choose M here: the
 	  module will be called penmount.
 
+config TOUCHSCREEN_MSM
+	bool "Qualcomm MSM touchscreen controller"
+#	depends on ARCH_MSM7X30 && MARIMBA_TSADC
+	default n
+	help
+	  Say Y here if you have a 4-wire resistive touchscreen panel
+	  connected to the TSSC touchscreen controller on a
+	  Qualcomm MSM/QSD based SoC.
+
+config TOUCHSCREEN_QT602240
+	tristate "QT602240 I2C Touchscreen"
+	depends on I2C
+	help
+	  Say Y here if you have the AT42QT602240/ATMXT224 I2C touchscreen
+	  connected to your system.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called qt602240_ts.
+
 config TOUCHSCREEN_MIGOR
 	tristate "Renesas MIGO-R touchscreen"
 	depends on SH_MIGOR && I2C
@@ -302,6 +350,24 @@ config TOUCHSCREEN_MIGOR
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called migor_ts.
+
+config TOUCHSCREEN_SYNAPTICS_I2C_RMI
+	tristate "Synaptics i2c touchscreen"
+	depends on I2C
+	help
+	  This enables support for Synaptics RMI over I2C based touchscreens.
+	  
+config TOUCHSCREEN_SYNAPTICS_I2C_RMI_UPDATE
+	tristate "Synaptics i2c touchscreen UPDATE"
+	depends on I2C
+	help
+	  This enables support for Synaptics RMI over I2C based touchscreens.	 
+	   
+#ZTE_TS_ZFJ_20101228,begin
+ config TOUCHSCREEN_SYNAPTICS_3K
+       tristate "Synaptics 3K touchscreen"
+       default n 
+#ZTE_TS_ZFJ_20101228,end 
 
 config TOUCHSCREEN_TOUCHRIGHT
 	tristate "Touchright serial touchscreen"
@@ -572,6 +638,27 @@ config TOUCHSCREEN_TSC2007
 	  To compile this driver as a module, choose M here: the
 	  module will be called tsc2007.
 
+config TOUCHSCREEN_MSM_LEGACY
+	default n
+	tristate "MSM Touchscreen"
+	depends on ARCH_MSM && !ARCH_MSM7X30
+	help
+	  Say Y here if you have a touchscreen interface using MSM
+	  touchscreen controller.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called msm_touch.
+
+config ANDROID_TOUCHSCREEN_MSM_HACKS
+	default y
+	depends on TOUCHSCREEN_MSM_LEGACY
+	bool "Android MSM Touchscreen hacks"
+	help
+	  Say Y here if you are running Android framework on Qualcomm
+	  MSM/QSD based Surf or FFAs. These hacks are required inorder
+	  to Android framework to receive adjusted x, y co-ordinates
+	  until proper calibration framework is in place.
+
 config TOUCHSCREEN_W90X900
 	tristate "W90P910 touchscreen driver"
 	depends on HAVE_CLK
@@ -603,4 +690,69 @@ config TOUCHSCREEN_TPS6507X
 	  To compile this driver as a module, choose M here: the
 	  module will be called tps6507x_ts.
 
+config TOUCHSCREEN_CY8C_TS
+	tristate "Cypress TMA300-TMG200 based touchscreens"
+	depends on I2C
+	default n
+	help
+	  Say Y here if you have a Cypress TMA300/TMG200 based touchscreen.
+	  TMA300 is a multi-touch screen which can report upto 10
+	  touches at a time. TMG200 supports 2 touches.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cy8c_ts.
+#ZTE_TOUCH_WLY_001,@2010-03-29,begin
+#ZTE_WLY_CRDB00517999, begin
+config DOWNLOAD_FIRMWARE
+tristate "Download firmware"
+	default n
+	help
+	  This download touchscreen's firmware.
+#ZTE_WLY_CRDB00517999, end
+
+config TOUCHSCREEN_CYPRESS_I2C_RMI
+	tristate "Cypress i2c touchscreen"
+	depends on I2C
+	help
+	  This enables support for Cypress RMI over I2C based touchscreens.
+#ZTE_TOUCH_WLY_001,@2010-03-29,end
+ config TOUCHSCREEN_MXT224
+       tristate "MXT224 based touchscreens"
+       depends on I2C
+       default n 
+config TOUCHSCREEN_CYTTSP_I2C
+       tristate "Cypress TTSP based touchscreens"
+       depends on I2C
+       default n
+       help
+         Say Y here if you have a Cypress TTSP based touchscreen.
+         TMA300 is a multi-touch screen which can report upto 10
+         touches at a time.
+
+         If unsure, say N.
+
+         To compile this driver as a module, choose M here: the
+         module will be called cyttsp-i2c.
+#ZTE_TS_ZFJ_20110124,begin
+ config TOUCHSCREEN_FOCALTECH
+       tristate "FocalTech touchscreen"
+       depends on I2C
+       default n
+#ZTE_TS_ZFJ_20110124,end
+
+#ZTE_TS_XYM_20110711  begin
+ config TOUCHSCREEN_FOCALTECH_NEW
+       tristate "FocalTech touchscreen"
+       depends on I2C
+       default n
+#ZTE_TS_XYM_20110711  end
+
+config TOUCHSCREEN_VIRTUAL_KEYS
+       tristate "touchscreens virtual key support"
+       default n 
+config MINI_RACER
+       tristate "mini racer"
+       default n 
 endif

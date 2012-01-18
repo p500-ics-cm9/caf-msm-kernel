@@ -33,6 +33,11 @@
  *		J Hadi Salim	:	ECN support
  *
  */
+ /* ========================================================================================
+when         who        what, where, why                             comment tag
+--------     ----       -----------------------------                ----------------------
+2011-03-25   wangcheng Set the tcp windows size >64k         ZTE_WANGCHENG_TCP_20110325
+==========================================================================================*/
 
 #include <net/tcp.h>
 
@@ -47,6 +52,12 @@ int sysctl_tcp_retrans_collapse __read_mostly = 1;
  * interpret the window field as a signed quantity.
  */
 int sysctl_tcp_workaround_signed_windows __read_mostly = 0;
+
+//ZTE_WANGCHENG_TCP_20110325 add
+#ifdef CONFIG_ZTE_PLATFORM
+int sysctl_tcp_force_windows_size_64k __read_mostly = 0;
+#endif
+//ZTE_WANGCHENG_TCP_20110325
 
 /* This limits the percentage of the congestion window which we
  * will allow a single TSO frame to consume.  Building TSO frames
@@ -243,6 +254,17 @@ void tcp_select_initial_window(int __space, __u32 mss,
 		else if (*rcv_wnd > init_cwnd * mss)
 			*rcv_wnd = init_cwnd * mss;
 	}
+//ZTE_WANGCHENG_TCP_20110325 add
+#ifdef CONFIG_ZTE_PLATFORM
+    if(sysctl_tcp_force_windows_size_64k) 
+
+	{
+	   *rcv_wscale = 1;
+	   *rcv_wnd = 65535U;
+
+	}
+#endif
+//ZTE_WANGCHENG_TCP_20110325 end
 
 	/* Set the clamp no higher than max representable value */
 	(*window_clamp) = min(65535U << (*rcv_wscale), *window_clamp);
@@ -2207,6 +2229,9 @@ void tcp_xmit_retransmit_queue(struct sock *sk)
 	u32 last_lost;
 	int mib_idx;
 	int fwd_rexmitting = 0;
+
+	if (!tp->packets_out)
+		return;
 
 	if (!tp->lost_out)
 		tp->retransmit_high = tp->snd_una;

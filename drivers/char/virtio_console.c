@@ -529,6 +529,10 @@ static bool will_write_block(struct port *port)
 {
 	bool ret;
 
+	if (!port->guest_connected) {
+		/* Port got hot-unplugged. Let's exit. */
+		return false;
+	}
 	if (!port->host_connected)
 		return true;
 
@@ -592,6 +596,10 @@ static ssize_t port_fops_write(struct file *filp, const char __user *ubuf,
 	ssize_t ret;
 	bool nonblock;
 
+	/* Userspace could be out to fool us */
+	if (!count)
+		return 0;
+
 	port = filp->private_data;
 
 	nonblock = filp->f_flags & O_NONBLOCK;
@@ -638,7 +646,7 @@ static unsigned int port_fops_poll(struct file *filp, poll_table *wait)
 	poll_wait(filp, &port->waitqueue, wait);
 
 	ret = 0;
-	if (port->inbuf)
+	if (!will_read_block(port))
 		ret |= POLLIN | POLLRDNORM;
 	if (!will_write_block(port))
 		ret |= POLLOUT;
@@ -1099,6 +1107,13 @@ static int remove_port(struct port *port)
 {
 	struct port_buffer *buf;
 
+	if (port->guest_connected) {
+		port->guest_connected = false;
+		port->host_connected = false;
+		wake_up_interruptible(&port->waitqueue);
+		send_control_msg(port, VIRTIO_CONSOLE_PORT_OPEN, 0);
+	}
+
 	spin_lock_irq(&port->portdev->ports_lock);
 	list_del(&port->list);
 	spin_unlock_irq(&port->portdev->ports_lock);
@@ -1120,9 +1135,6 @@ static int remove_port(struct port *port)
 		hvc_remove(port->cons.hvc);
 #endif
 	}
-	if (port->guest_connected)
-		send_control_msg(port, VIRTIO_CONSOLE_PORT_OPEN, 0);
-
 	sysfs_remove_group(&port->dev->kobj, &port_attribute_group);
 	device_destroy(pdrvdata.class, port->dev->devt);
 	cdev_del(&port->cdev);

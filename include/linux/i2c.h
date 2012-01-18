@@ -582,4 +582,168 @@ union i2c_smbus_data {
 #define I2C_SMBUS_BLOCK_PROC_CALL   7		/* SMBus 2.0 */
 #define I2C_SMBUS_I2C_BLOCK_DATA    8
 
+
+#ifdef __KERNEL__
+
+/* These defines are used for probing i2c client addresses */
+/* The length of the option lists */
+#define I2C_CLIENT_MAX_OPTS 48
+
+/* Default fill of many variables */
+#define I2C_CLIENT_DEFAULTS {I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END, \
+			     I2C_CLIENT_END, I2C_CLIENT_END, I2C_CLIENT_END}
+
+/* I2C_CLIENT_MODULE_PARM creates a module parameter, and puts it in the
+   module header */
+
+#define I2C_CLIENT_MODULE_PARM(var,desc) \
+  static unsigned short var[I2C_CLIENT_MAX_OPTS] = I2C_CLIENT_DEFAULTS; \
+  static unsigned int var##_num; \
+  module_param_array(var, short, &var##_num, 0); \
+  MODULE_PARM_DESC(var, desc)
+
+#define I2C_CLIENT_MODULE_PARM_FORCE(name)				\
+I2C_CLIENT_MODULE_PARM(force_##name,					\
+		       "List of adapter,address pairs which are "	\
+		       "unquestionably assumed to contain a `"		\
+		       # name "' chip")
+
+
+#define I2C_CLIENT_INSMOD_COMMON					\
+I2C_CLIENT_MODULE_PARM(probe, "List of adapter,address pairs to scan "	\
+		       "additionally");					\
+I2C_CLIENT_MODULE_PARM(ignore, "List of adapter,address pairs not to "	\
+		       "scan");						\
+static const struct i2c_client_address_data addr_data = {		\
+	.normal_i2c	= normal_i2c,					\
+	.probe		= probe,					\
+	.ignore		= ignore,					\
+	.forces		= forces,					\
+}
+
+#define I2C_CLIENT_FORCE_TEXT \
+	"List of adapter,address pairs to boldly assume to be present"
+
+/* These are the ones you want to use in your own drivers. Pick the one
+   which matches the number of devices the driver differenciates between. */
+#define I2C_CLIENT_INSMOD						\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+static const unsigned short * const forces[] = { force, NULL };		\
+I2C_CLIENT_INSMOD_COMMON
+
+#define I2C_CLIENT_INSMOD_1(chip1)					\
+enum chips { any_chip, chip1 };						\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+I2C_CLIENT_MODULE_PARM_FORCE(chip1);					\
+static const unsigned short * const forces[] =	{ force,		\
+	force_##chip1, NULL };						\
+I2C_CLIENT_INSMOD_COMMON
+
+#define I2C_CLIENT_INSMOD_2(chip1, chip2)				\
+enum chips { any_chip, chip1, chip2 };					\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+I2C_CLIENT_MODULE_PARM_FORCE(chip1);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip2);					\
+static const unsigned short * const forces[] =	{ force,		\
+	force_##chip1, force_##chip2, NULL };				\
+I2C_CLIENT_INSMOD_COMMON
+
+#define I2C_CLIENT_INSMOD_3(chip1, chip2, chip3)			\
+enum chips { any_chip, chip1, chip2, chip3 };				\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+I2C_CLIENT_MODULE_PARM_FORCE(chip1);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip2);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip3);					\
+static const unsigned short * const forces[] =	{ force,		\
+	force_##chip1, force_##chip2, force_##chip3, NULL };		\
+I2C_CLIENT_INSMOD_COMMON
+
+#define I2C_CLIENT_INSMOD_4(chip1, chip2, chip3, chip4)			\
+enum chips { any_chip, chip1, chip2, chip3, chip4 };			\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+I2C_CLIENT_MODULE_PARM_FORCE(chip1);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip2);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip3);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip4);					\
+static const unsigned short * const forces[] =	{ force,		\
+	force_##chip1, force_##chip2, force_##chip3,			\
+	force_##chip4, NULL};						\
+I2C_CLIENT_INSMOD_COMMON
+
+#define I2C_CLIENT_INSMOD_5(chip1, chip2, chip3, chip4, chip5)		\
+enum chips { any_chip, chip1, chip2, chip3, chip4, chip5 };		\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+I2C_CLIENT_MODULE_PARM_FORCE(chip1);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip2);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip3);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip4);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip5);					\
+static const unsigned short * const forces[] = { force,			\
+	force_##chip1, force_##chip2, force_##chip3,			\
+	force_##chip4, force_##chip5, NULL };				\
+I2C_CLIENT_INSMOD_COMMON
+
+#define I2C_CLIENT_INSMOD_6(chip1, chip2, chip3, chip4, chip5, chip6)	\
+enum chips { any_chip, chip1, chip2, chip3, chip4, chip5, chip6 };	\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+I2C_CLIENT_MODULE_PARM_FORCE(chip1);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip2);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip3);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip4);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip5);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip6);					\
+static const unsigned short * const forces[] = { force,			\
+	force_##chip1, force_##chip2, force_##chip3,			\
+	force_##chip4, force_##chip5, force_##chip6, NULL };		\
+I2C_CLIENT_INSMOD_COMMON
+
+#define I2C_CLIENT_INSMOD_7(chip1, chip2, chip3, chip4, chip5, chip6, chip7) \
+enum chips { any_chip, chip1, chip2, chip3, chip4, chip5, chip6,	\
+	     chip7 };							\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+I2C_CLIENT_MODULE_PARM_FORCE(chip1);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip2);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip3);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip4);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip5);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip6);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip7);					\
+static const unsigned short * const forces[] = { force,			\
+	force_##chip1, force_##chip2, force_##chip3,			\
+	force_##chip4, force_##chip5, force_##chip6,			\
+	force_##chip7, NULL };						\
+I2C_CLIENT_INSMOD_COMMON
+
+#define I2C_CLIENT_INSMOD_8(chip1, chip2, chip3, chip4, chip5, chip6, chip7, chip8) \
+enum chips { any_chip, chip1, chip2, chip3, chip4, chip5, chip6,	\
+	     chip7, chip8 };						\
+I2C_CLIENT_MODULE_PARM(force, I2C_CLIENT_FORCE_TEXT);			\
+I2C_CLIENT_MODULE_PARM_FORCE(chip1);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip2);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip3);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip4);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip5);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip6);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip7);					\
+I2C_CLIENT_MODULE_PARM_FORCE(chip8);					\
+static const unsigned short * const forces[] = { force,			\
+	force_##chip1, force_##chip2, force_##chip3,			\
+	force_##chip4, force_##chip5, force_##chip6,			\
+	force_##chip7, force_##chip8, NULL };				\
+I2C_CLIENT_INSMOD_COMMON
+#endif /* __KERNEL__ */
 #endif /* _LINUX_I2C_H */

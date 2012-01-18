@@ -416,8 +416,11 @@ int usb_sg_init(struct usb_sg_request *io, struct usb_device *dev,
 			/* A length of zero means transfer the whole sg list */
 			len = length;
 			if (len == 0) {
-				for_each_sg(sg, sg, nents, i)
-					len += sg->length;
+				struct scatterlist	*sg2;
+				int			j;
+
+				for_each_sg(sg, sg2, nents, j)
+					len += sg2->length;
 			}
 		} else {
 			/*
@@ -1721,6 +1724,15 @@ free_interfaces:
 	if (ret)
 		goto free_interfaces;
 
+	/* if it's already configured, clear out old state first.
+	 * getting rid of old interfaces means unbinding their drivers.
+	 */
+	if (dev->state != USB_STATE_ADDRESS)
+		usb_disable_device(dev, 1);	/* Skip ep0 */
+
+	/* Get rid of pending async Set-Config requests for this device */
+	cancel_async_set_config(dev);
+
 	/* Make sure we have bandwidth (and available HCD resources) for this
 	 * configuration.  Remove endpoints from the schedule if we're dropping
 	 * this configuration to set configuration 0.  After this point, the
@@ -1730,19 +1742,10 @@ free_interfaces:
 	mutex_lock(&hcd->bandwidth_mutex);
 	ret = usb_hcd_alloc_bandwidth(dev, cp, NULL, NULL);
 	if (ret < 0) {
-		usb_autosuspend_device(dev);
 		mutex_unlock(&hcd->bandwidth_mutex);
+		usb_autosuspend_device(dev);
 		goto free_interfaces;
 	}
-
-	/* if it's already configured, clear out old state first.
-	 * getting rid of old interfaces means unbinding their drivers.
-	 */
-	if (dev->state != USB_STATE_ADDRESS)
-		usb_disable_device(dev, 1);	/* Skip ep0 */
-
-	/* Get rid of pending async Set-Config requests for this device */
-	cancel_async_set_config(dev);
 
 	ret = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 			      USB_REQ_SET_CONFIGURATION, 0, configuration, 0,
@@ -1758,8 +1761,8 @@ free_interfaces:
 	if (!cp) {
 		usb_set_device_state(dev, USB_STATE_ADDRESS);
 		usb_hcd_alloc_bandwidth(dev, NULL, NULL, NULL);
-		usb_autosuspend_device(dev);
 		mutex_unlock(&hcd->bandwidth_mutex);
+		usb_autosuspend_device(dev);
 		goto free_interfaces;
 	}
 	mutex_unlock(&hcd->bandwidth_mutex);

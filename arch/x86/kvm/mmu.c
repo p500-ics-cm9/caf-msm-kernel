@@ -799,8 +799,12 @@ static int kvm_handle_hva(struct kvm *kvm, unsigned long hva,
 			ret = handler(kvm, &memslot->rmap[gfn_offset], data);
 
 			for (j = 0; j < KVM_NR_PAGE_SIZES - 1; ++j) {
-				int idx = gfn_offset;
-				idx /= KVM_PAGES_PER_HPAGE(PT_DIRECTORY_LEVEL + j);
+				unsigned long idx;
+				int nr;
+
+				nr = KVM_PAGES_PER_HPAGE(PT_DIRECTORY_LEVEL+j);
+				idx = (memslot->base_gfn+gfn_offset) / nr -
+					memslot->base_gfn / nr;
 				ret |= handler(kvm,
 					&memslot->lpage_info[j][idx].rmap_pde,
 					data);
@@ -1815,6 +1819,9 @@ static int set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 
 		spte |= PT_WRITABLE_MASK;
 
+		if (!tdp_enabled && !(pte_access & ACC_WRITE_MASK))
+			spte &= ~PT_USER_MASK;
+
 		/*
 		 * Optimization: for pte sync, if spte was writable the hash
 		 * lookup is unnecessary (and expensive). Write protection
@@ -1870,10 +1877,14 @@ static void mmu_set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 
 			child = page_header(pte & PT64_BASE_ADDR_MASK);
 			mmu_page_remove_parent_pte(child, sptep);
+			__set_spte(sptep, shadow_trap_nonpresent_pte);
+			kvm_flush_remote_tlbs(vcpu->kvm);
 		} else if (pfn != spte_to_pfn(*sptep)) {
 			pgprintk("hfn old %lx new %lx\n",
 				 spte_to_pfn(*sptep), pfn);
 			rmap_remove(vcpu->kvm, sptep);
+			__set_spte(sptep, shadow_trap_nonpresent_pte);
+			kvm_flush_remote_tlbs(vcpu->kvm);
 		} else
 			was_rmapped = 1;
 	}
@@ -2919,7 +2930,7 @@ static int kvm_mmu_remove_some_alloc_mmu_pages(struct kvm *kvm)
 	return kvm_mmu_zap_page(kvm, page) + 1;
 }
 
-static int mmu_shrink(int nr_to_scan, gfp_t gfp_mask)
+static int mmu_shrink(struct shrinker *shrink, int nr_to_scan, gfp_t gfp_mask)
 {
 	struct kvm *kvm;
 	struct kvm *kvm_freed = NULL;

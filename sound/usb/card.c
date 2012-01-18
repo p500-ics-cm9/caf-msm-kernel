@@ -126,7 +126,7 @@ static void snd_usb_stream_disconnect(struct list_head *head)
 	for (idx = 0; idx < 2; idx++) {
 		subs = &as->substream[idx];
 		if (!subs->num_formats)
-			return;
+			continue;
 		snd_usb_release_substream_urbs(subs, 1);
 		subs->interface = -1;
 	}
@@ -216,6 +216,11 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 	}
 
 	switch (protocol) {
+	default:
+		snd_printdd(KERN_WARNING "unknown interface protocol %#02x, assuming v1\n",
+			    protocol);
+		/* fall through */
+
 	case UAC_VERSION_1: {
 		struct uac_ac_header_descriptor_v1 *h1 = control_header;
 
@@ -236,7 +241,6 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 	}
 
 	case UAC_VERSION_2: {
-		struct uac_clock_source_descriptor *cs;
 		struct usb_interface_assoc_descriptor *assoc =
 			usb_ifnum_to_if(dev, ctrlif)->intf_assoc;
 
@@ -244,21 +248,6 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 			snd_printk(KERN_ERR "Audio class v2 interfaces need an interface association\n");
 			return -EINVAL;
 		}
-
-		/* FIXME: for now, we expect there is at least one clock source
-		 * descriptor and we always take the first one.
-		 * We should properly support devices with multiple clock sources,
-		 * clock selectors and sample rate conversion units. */
-
-		cs = snd_usb_find_csint_desc(host_iface->extra, host_iface->extralen,
-						NULL, UAC2_CLOCK_SOURCE);
-
-		if (!cs) {
-			snd_printk(KERN_ERR "CLOCK_SOURCE descriptor not found\n");
-			return -EINVAL;
-		}
-
-		chip->clock_id = cs->bClockID;
 
 		for (i = 0; i < assoc->bInterfaceCount; i++) {
 			int intf = assoc->bFirstInterface + i;
@@ -269,10 +258,6 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 
 		break;
 	}
-
-	default:
-		snd_printk(KERN_ERR "unknown protocol version 0x%02x\n", protocol);
-		return -EINVAL;
 	}
 
 	return 0;
@@ -480,6 +465,14 @@ static void *snd_usb_audio_probe(struct usb_device *dev,
 		if ((err = snd_usb_create_quirk(chip, intf, &usb_audio_driver, quirk)) < 0)
 			goto __error;
 	}
+
+	/*
+	 * For devices with more than one control interface, we assume the
+	 * first contains the audio controls. We might need a more specific
+	 * check here in the future.
+	 */
+	if (!chip->ctrl_intf)
+		chip->ctrl_intf = alts;
 
 	if (err > 0) {
 		/* create normal USB audio interfaces */

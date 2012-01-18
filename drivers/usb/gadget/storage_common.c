@@ -67,6 +67,9 @@
 
 /*-------------------------------------------------------------------------*/
 
+//#define DEBUG
+//#define VERBOSE_DEBUG
+//#define DUMP_MSGS
 
 #ifndef DEBUG
 #undef VERBOSE_DEBUG
@@ -232,6 +235,15 @@ struct interrupt_data {
 #define SC_WRITE_6			0x0a
 #define SC_WRITE_10			0x2a
 #define SC_WRITE_12			0xaa
+// ruanemisi_20100712 cdrom   auto switch
+#define SC_SWITCH_MODE	0x85 //USB_HML_20100602
+#define SC_SWITCH_MODE_MAC_OS	0xa1 //SCSI Command for swithing on Mac OS
+//end
+//SCSI Command for OS X
+#define SC_GET_CONFIGRATION    0x46
+#define SC_SET_CD_SPEED	           0xbb	
+
+
 
 /* SCSI Sense Key/Additional Sense Code/ASC Qualifier values */
 #define SS_NO_SENSE				0
@@ -275,6 +287,9 @@ struct fsg_lun {
 	u32		unit_attention_data;
 
 	struct device	dev;
+	//cdrom   0: udisk  1:cdrom
+	int             type;
+	//end	
 };
 
 #define fsg_lun_is_open(curlun)	((curlun)->filp != NULL)
@@ -289,8 +304,13 @@ static struct fsg_lun *fsg_lun_from_dev(struct device *dev)
 #define EP0_BUFSIZE	256
 #define DELAYED_STATUS	(EP0_BUFSIZE + 999)	/* An impossibly large value */
 
-/* Number of buffers we will use.  2 is enough for double-buffering */
+/* Number of buffers for CBW, DATA and CSW */
+#ifdef CONFIG_USB_CSW_HACK
+#define FSG_NUM_BUFFERS    4
+#else
 #define FSG_NUM_BUFFERS	2
+#endif
+
 
 /* Default size of buffer length. */
 #define FSG_BUFLEN	((u32)16384)
@@ -750,10 +770,16 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 	struct rw_semaphore	*filesem = dev_get_drvdata(dev);
 	int		rc = 0;
 
+
+#ifndef CONFIG_USB_ANDROID_MASS_STORAGE
+	/* disabled in android because we need to allow closing the backing file
+	 * if the media was removed
+	 */
 	if (curlun->prevent_medium_removal && fsg_lun_is_open(curlun)) {
 		LDBG(curlun, "eject attempt prevented\n");
 		return -EBUSY;				/* "Door is locked" */
 	}
+#endif
 
 	/* Remove a trailing newline */
 	if (count > 0 && buf[count-1] == '\n')

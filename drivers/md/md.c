@@ -532,13 +532,17 @@ static void mddev_unlock(mddev_t * mddev)
 		 * an access to the files will try to take reconfig_mutex
 		 * while holding the file unremovable, which leads to
 		 * a deadlock.
-		 * So hold open_mutex instead - we are allowed to take
-		 * it while holding reconfig_mutex, and md_run can
-		 * use it to wait for the remove to complete.
+		 * So hold set sysfs_active while the remove in happeing,
+		 * and anything else which might set ->to_remove or my
+		 * otherwise change the sysfs namespace will fail with
+		 * -EBUSY if sysfs_active is still set.
+		 * We set sysfs_active under reconfig_mutex and elsewhere
+		 * test it under the same mutex to ensure its correct value
+		 * is seen.
 		 */
 		struct attribute_group *to_remove = mddev->to_remove;
 		mddev->to_remove = NULL;
-		mutex_lock(&mddev->open_mutex);
+		mddev->sysfs_active = 1;
 		mutex_unlock(&mddev->reconfig_mutex);
 
 		if (to_remove != &md_redundancy_group)
@@ -550,7 +554,7 @@ static void mddev_unlock(mddev_t * mddev)
 				sysfs_put(mddev->sysfs_action);
 			mddev->sysfs_action = NULL;
 		}
-		mutex_unlock(&mddev->open_mutex);
+		mddev->sysfs_active = 0;
 	} else
 		mutex_unlock(&mddev->reconfig_mutex);
 
@@ -2087,6 +2091,7 @@ static void sync_sbs(mddev_t * mddev, int nospares)
 	/* First make sure individual recovery_offsets are correct */
 	list_for_each_entry(rdev, &mddev->disks, same_set) {
 		if (rdev->raid_disk >= 0 &&
+		    mddev->delta_disks >= 0 &&
 		    !test_bit(In_sync, &rdev->flags) &&
 		    mddev->curr_resync_completed > rdev->recovery_offset)
 				rdev->recovery_offset = mddev->curr_resync_completed;
@@ -2959,7 +2964,9 @@ level_store(mddev_t *mddev, const char *buf, size_t len)
 	 *  - new personality will access other array.
 	 */
 
-	if (mddev->sync_thread || mddev->reshape_position != MaxSector)
+	if (mddev->sync_thread ||
+	    mddev->reshape_position != MaxSector ||
+	    mddev->sysfs_active)
 		return -EBUSY;
 
 	if (!mddev->pers->quiesce) {
@@ -3000,6 +3007,9 @@ level_store(mddev_t *mddev, const char *buf, size_t len)
 		       mdname(mddev), clevel);
 		return -EINVAL;
 	}
+
+	list_for_each_entry(rdev, &mddev->disks, same_set)
+		rdev->new_raid_disk = rdev->raid_disk;
 
 	/* ->takeover must set new_* and/or delta_disks
 	 * if it succeeds, and may set them when it fails.
@@ -3051,13 +3061,35 @@ level_store(mddev_t *mddev, const char *buf, size_t len)
 		mddev->safemode = 0;
 	}
 
-	module_put(mddev->pers->owner);
-	/* Invalidate devices that are now superfluous */
-	list_for_each_entry(rdev, &mddev->disks, same_set)
-		if (rdev->raid_disk >= mddev->raid_disks) {
-			rdev->raid_disk = -1;
+	list_for_each_entry(rdev, &mddev->disks, same_set) {
+		char nm[20];
+		if (rdev->raid_disk < 0)
+			continue;
+		if (rdev->new_raid_disk > mddev->raid_disks)
+			rdev->new_raid_disk = -1;
+		if (rdev->new_raid_disk == rdev->raid_disk)
+			continue;
+		sprintf(nm, "rd%d", rdev->raid_disk);
+		sysfs_remove_link(&mddev->kobj, nm);
+	}
+	list_for_each_entry(rdev, &mddev->disks, same_set) {
+		if (rdev->raid_disk < 0)
+			continue;
+		if (rdev->new_raid_disk == rdev->raid_disk)
+			continue;
+		rdev->raid_disk = rdev->new_raid_disk;
+		if (rdev->raid_disk < 0)
 			clear_bit(In_sync, &rdev->flags);
+		else {
+			char nm[20];
+			sprintf(nm, "rd%d", rdev->raid_disk);
+			if(sysfs_create_link(&mddev->kobj, &rdev->kobj, nm))
+				printk("md: cannot register %s for %s after level change\n",
+				       nm, mdname(mddev));
 		}
+		}
+
+	module_put(mddev->pers->owner);
 	mddev->pers = pers;
 	mddev->private = priv;
 	strlcpy(mddev->clevel, pers->name, sizeof(mddev->clevel));
@@ -4318,13 +4350,9 @@ static int md_run(mddev_t *mddev)
 
 	if (mddev->pers)
 		return -EBUSY;
-
-	/* These two calls synchronise us with the
-	 * sysfs_remove_group calls in mddev_unlock,
-	 * so they must have completed.
-	 */
-	mutex_lock(&mddev->open_mutex);
-	mutex_unlock(&mddev->open_mutex);
+	/* Cannot run until previous stop completes properly */
+	if (mddev->sysfs_active)
+		return -EBUSY;
 
 	/*
 	 * Analyze all RAID superblock(s)
@@ -4685,12 +4713,13 @@ out:
  */
 static int do_md_stop(mddev_t * mddev, int mode, int is_open)
 {
-	int err = 0;
+	int err = 0, revalidate = 0;
 	struct gendisk *disk = mddev->gendisk;
 	mdk_rdev_t *rdev;
 
 	mutex_lock(&mddev->open_mutex);
-	if (atomic_read(&mddev->openers) > is_open) {
+	if (atomic_read(&mddev->openers) > is_open ||
+	    mddev->sysfs_active) {
 		printk("md: %s still in use.\n",mdname(mddev));
 		err = -EBUSY;
 	} else if (mddev->pers) {
@@ -4714,7 +4743,7 @@ static int do_md_stop(mddev_t * mddev, int mode, int is_open)
 			}
 
 		set_capacity(disk, 0);
-		revalidate_disk(disk);
+		revalidate = 1;
 
 		if (mddev->ro)
 			mddev->ro = 0;
@@ -4722,6 +4751,8 @@ static int do_md_stop(mddev_t * mddev, int mode, int is_open)
 		err = 0;
 	}
 	mutex_unlock(&mddev->open_mutex);
+	if (revalidate)
+		revalidate_disk(disk);
 	if (err)
 		return err;
 	/*
@@ -5895,6 +5926,7 @@ static int md_open(struct block_device *bdev, fmode_t mode)
 	atomic_inc(&mddev->openers);
 	mutex_unlock(&mddev->open_mutex);
 
+	check_disk_size_change(mddev->gendisk, bdev);
  out:
 	return err;
 }
@@ -6846,6 +6878,7 @@ void md_do_sync(mddev_t *mddev)
 			rcu_read_lock();
 			list_for_each_entry_rcu(rdev, &mddev->disks, same_set)
 				if (rdev->raid_disk >= 0 &&
+				    mddev->delta_disks >= 0 &&
 				    !test_bit(Faulty, &rdev->flags) &&
 				    !test_bit(In_sync, &rdev->flags) &&
 				    rdev->recovery_offset < mddev->curr_resync)

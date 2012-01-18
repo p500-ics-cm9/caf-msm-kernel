@@ -176,6 +176,8 @@ void radeon_pm_suspend(struct radeon_device *rdev);
 void radeon_pm_resume(struct radeon_device *rdev);
 void radeon_combios_get_power_modes(struct radeon_device *rdev);
 void radeon_atombios_get_power_modes(struct radeon_device *rdev);
+void radeon_atom_set_voltage(struct radeon_device *rdev, u16 level);
+void rs690_pm_info(struct radeon_device *rdev);
 
 /*
  * Fences.
@@ -349,6 +351,7 @@ struct radeon_mc {
 	int			vram_mtrr;
 	bool			vram_is_ddr;
 	bool			igp_sideport_enabled;
+	u64                     gtt_base_align;
 };
 
 bool radeon_combios_sideport_present(struct radeon_device *rdev);
@@ -618,7 +621,8 @@ enum radeon_dynpm_state {
 	DYNPM_STATE_DISABLED,
 	DYNPM_STATE_MINIMUM,
 	DYNPM_STATE_PAUSED,
-	DYNPM_STATE_ACTIVE
+	DYNPM_STATE_ACTIVE,
+	DYNPM_STATE_SUSPENDED,
 };
 enum radeon_dynpm_action {
 	DYNPM_ACTION_NONE,
@@ -647,15 +651,18 @@ enum radeon_pm_profile_type {
 	PM_PROFILE_DEFAULT,
 	PM_PROFILE_AUTO,
 	PM_PROFILE_LOW,
+	PM_PROFILE_MID,
 	PM_PROFILE_HIGH,
 };
 
 #define PM_PROFILE_DEFAULT_IDX 0
 #define PM_PROFILE_LOW_SH_IDX  1
-#define PM_PROFILE_HIGH_SH_IDX 2
-#define PM_PROFILE_LOW_MH_IDX  3
-#define PM_PROFILE_HIGH_MH_IDX 4
-#define PM_PROFILE_MAX         5
+#define PM_PROFILE_MID_SH_IDX  2
+#define PM_PROFILE_HIGH_SH_IDX 3
+#define PM_PROFILE_LOW_MH_IDX  4
+#define PM_PROFILE_MID_MH_IDX  5
+#define PM_PROFILE_HIGH_MH_IDX 6
+#define PM_PROFILE_MAX         7
 
 struct radeon_pm_profile {
 	int dpms_off_ps_idx;
@@ -744,6 +751,7 @@ struct radeon_pm {
 	int                     default_power_state_index;
 	u32                     current_sclk;
 	u32                     current_mclk;
+	u32                     current_vddc;
 	struct radeon_i2c_chan *i2c_bus;
 	/* selected pm method */
 	enum radeon_pm_method     pm_method;
@@ -989,6 +997,11 @@ int radeon_gem_set_tiling_ioctl(struct drm_device *dev, void *data,
 int radeon_gem_get_tiling_ioctl(struct drm_device *dev, void *data,
 				struct drm_file *filp);
 
+/* VRAM scratch page for HDP bug */
+struct r700_vram_scratch {
+	struct radeon_bo		*robj;
+	volatile uint32_t		*ptr;
+};
 
 /*
  * Core structure, functions and helpers.
@@ -1052,6 +1065,7 @@ struct radeon_device {
 	const struct firmware *pfp_fw;	/* r6/700 PFP firmware */
 	const struct firmware *rlc_fw;	/* r6/700 RLC firmware */
 	struct r600_blit r600_blit;
+	struct r700_vram_scratch vram_scratch;
 	int msi_enabled; /* msi enabled */
 	struct r600_ih ih; /* r6/700 interrupt ring */
 	struct workqueue_struct *wq;

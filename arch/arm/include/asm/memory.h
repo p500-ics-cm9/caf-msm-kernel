@@ -179,7 +179,7 @@
  * translation for translating DMA addresses.  Use the driver
  * DMA support - see dma-mapping.h.
  */
-static inline unsigned long virt_to_phys(void *x)
+static inline unsigned long virt_to_phys(const void *x)
 {
 	return __virt_to_phys((unsigned long)(x));
 }
@@ -310,6 +310,13 @@ static inline __deprecated void *bus_to_virt(unsigned long x)
  */
 #ifndef arch_is_coherent
 #define arch_is_coherent()		0
+#endif
+
+/*
+ * Set if the architecture speculatively fetches data into cache.
+ */
+#ifndef arch_has_speculative_dfetch
+#define arch_has_speculative_dfetch()	0
 #endif
 
 #endif

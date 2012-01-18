@@ -1145,14 +1145,11 @@ static long do_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		unlock_fb_info(info);
 		break;
 	default:
-		if (!lock_fb_info(info))
-			return -ENODEV;
 		fb = info->fbops;
 		if (fb->fb_ioctl)
 			ret = fb->fb_ioctl(info, cmd, arg);
 		else
 			ret = -ENOTTY;
-		unlock_fb_info(info);
 	}
 	return ret;
 }
@@ -1604,6 +1601,7 @@ register_framebuffer(struct fb_info *fb_info)
 	if (!lock_fb_info(fb_info))
 		return -ENODEV;
 	fb_notifier_call_chain(FB_EVENT_FB_REGISTERED, &event);
+	fb_info->fbops->fb_open(fb_info, 0);
 	unlock_fb_info(fb_info);
 	return 0;
 }

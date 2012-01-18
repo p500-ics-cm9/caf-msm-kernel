@@ -106,7 +106,9 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 
 	info = data;
 	value_ptr = (uint32_t *)((unsigned long)info->value);
-	value = *value_ptr;
+	if (DRM_COPY_FROM_USER(&value, value_ptr, sizeof(value)))
+		return -EFAULT;
+
 	switch (info->request) {
 	case RADEON_INFO_DEVICE_ID:
 		value = dev->pci_device;
@@ -118,13 +120,18 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		value = rdev->num_z_pipes;
 		break;
 	case RADEON_INFO_ACCEL_WORKING:
+		/* xf86-video-ati 6.13.0 relies on this being false for evergreen */
+		if ((rdev->family >= CHIP_CEDAR) && (rdev->family <= CHIP_HEMLOCK))
+			value = false;
+		else
 		value = rdev->accel_working;
 		break;
 	case RADEON_INFO_CRTC_FROM_ID:
 		for (i = 0, found = 0; i < rdev->num_crtc; i++) {
 			crtc = (struct drm_crtc *)minfo->crtcs[i];
 			if (crtc && crtc->base.id == value) {
-				value = i;
+				struct radeon_crtc *radeon_crtc = to_radeon_crtc(crtc);
+				value = radeon_crtc->crtc_id;
 				found = 1;
 				break;
 			}
@@ -133,6 +140,9 @@ int radeon_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 			DRM_DEBUG("unknown crtc id %d\n", value);
 			return -EINVAL;
 		}
+		break;
+	case RADEON_INFO_ACCEL_WORKING2:
+		value = rdev->accel_working;
 		break;
 	default:
 		DRM_DEBUG("Invalid request %d\n", info->request);

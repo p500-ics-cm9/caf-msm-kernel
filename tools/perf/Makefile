@@ -600,10 +600,11 @@ endif
 
 ifdef NO_DEMANGLE
 	BASIC_CFLAGS += -DNO_DEMANGLE
-else ifdef HAVE_CPLUS_DEMANGLE
+else
+	ifdef HAVE_CPLUS_DEMANGLE
 	EXTLIBS += -liberty
 	BASIC_CFLAGS += -DHAVE_CPLUS_DEMANGLE
-else
+	else
 	has_bfd := $(shell sh -c "(echo '\#include <bfd.h>'; echo 'int main(void) { bfd_demangle(0, 0, 0); return 0; }') | $(CC) -x c - $(ALL_CFLAGS) -o $(BITBUCKET) $(ALL_LDFLAGS) $(EXTLIBS) -lbfd "$(QUIET_STDERR)" && echo y")
 
 	ifeq ($(has_bfd),y)
@@ -627,6 +628,7 @@ else
 				endif
 			endif
 		endif
+	endif
 	endif
 endif
 

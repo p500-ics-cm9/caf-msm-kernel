@@ -220,6 +220,7 @@ get_futex_key(u32 __user *uaddr, int fshared, union futex_key *key)
 	struct mm_struct *mm = current->mm;
 	struct page *page;
 	int err;
+	struct vm_area_struct *vma;
 
 	/*
 	 * The futex address must be "naturally" aligned.
@@ -239,6 +240,37 @@ get_futex_key(u32 __user *uaddr, int fshared, union futex_key *key)
 	if (!fshared) {
 		if (unlikely(!access_ok(VERIFY_WRITE, uaddr, sizeof(u32))))
 			return -EFAULT;
+		key->private.mm = mm;
+		key->private.address = address;
+		get_futex_key_refs(key);
+		return 0;
+	}
+
+	/*
+	 * The futex is hashed differently depending on whether
+	 * it's in a shared or private mapping.  So check vma first.
+	 */
+	vma = find_extend_vma(mm, address);
+	if (unlikely(!vma))
+		return -EFAULT;
+
+	/*
+	 * Permissions.
+	 */
+	if (unlikely((vma->vm_flags & (VM_IO|VM_READ)) != VM_READ))
+		return (vma->vm_flags & VM_IO) ? -EPERM : -EACCES;
+
+	/*
+	 * Private mappings are handled in a simple way.
+	 *
+	 * NOTE: When userspace waits on a MAP_SHARED mapping, even if
+	 * it's a read-only handle, it's expected that futexes attach to
+	 * the object not the particular process.  Therefore we use
+	 * VM_MAYSHARE here, not VM_SHARED which is restricted to shared
+	 * mappings of _writable_ handles.
+	 */
+	if (likely(!(vma->vm_flags & VM_MAYSHARE))) {
+		key->both.offset |= FUT_OFF_MMSHARED; /* reference taken on mm */
 		key->private.mm = mm;
 		key->private.address = address;
 		get_futex_key_refs(key);
@@ -429,20 +461,11 @@ static void free_pi_state(struct futex_pi_state *pi_state)
 static struct task_struct * futex_find_get_task(pid_t pid)
 {
 	struct task_struct *p;
-	const struct cred *cred = current_cred(), *pcred;
 
 	rcu_read_lock();
 	p = find_task_by_vpid(pid);
-	if (!p) {
-		p = ERR_PTR(-ESRCH);
-	} else {
-		pcred = __task_cred(p);
-		if (cred->euid != pcred->euid &&
-		    cred->euid != pcred->uid)
-			p = ERR_PTR(-ESRCH);
-		else
+	if (p)
 			get_task_struct(p);
-	}
 
 	rcu_read_unlock();
 
@@ -564,8 +587,8 @@ lookup_pi_state(u32 uval, struct futex_hash_bucket *hb,
 	if (!pid)
 		return -ESRCH;
 	p = futex_find_get_task(pid);
-	if (IS_ERR(p))
-		return PTR_ERR(p);
+	if (!p)
+		return -ESRCH;
 
 	/*
 	 * We need to look at the task state flags to figure out,

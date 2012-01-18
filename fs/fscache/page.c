@@ -710,17 +710,14 @@ static void fscache_write_op(struct fscache_operation *_op)
 		goto superseded;
 	}
 
-	if (page) {
 		radix_tree_tag_set(&cookie->stores, page->index,
 				   FSCACHE_COOKIE_STORING_TAG);
 		radix_tree_tag_clear(&cookie->stores, page->index,
 				     FSCACHE_COOKIE_PENDING_TAG);
-	}
 
 	spin_unlock(&cookie->stores_lock);
 	spin_unlock(&object->lock);
 
-	if (page) {
 		fscache_set_op_state(&op->op, "Store");
 		fscache_stat(&fscache_n_store_pages);
 		fscache_stat(&fscache_n_cop_write_page);
@@ -734,7 +731,6 @@ static void fscache_write_op(struct fscache_operation *_op)
 		} else {
 			fscache_enqueue_operation(&op->op);
 		}
-	}
 
 	_leave("");
 	return;

@@ -420,10 +420,9 @@ void iwl_bg_scan_check(struct work_struct *data)
 		return;
 
 	mutex_lock(&priv->mutex);
-	if (test_bit(STATUS_SCANNING, &priv->status) ||
-	    test_bit(STATUS_SCAN_ABORTING, &priv->status)) {
-		IWL_DEBUG_SCAN(priv, "Scan completion watchdog resetting "
-			"adapter (%dms)\n",
+	if (test_bit(STATUS_SCANNING, &priv->status) &&
+	    !test_bit(STATUS_SCAN_ABORTING, &priv->status)) {
+		IWL_DEBUG_SCAN(priv, "Scan completion watchdog (%dms)\n",
 			jiffies_to_msecs(IWL_SCAN_CHECK_WATCHDOG));
 
 		if (!test_bit(STATUS_EXIT_PENDING, &priv->status))
@@ -489,11 +488,11 @@ void iwl_bg_abort_scan(struct work_struct *work)
 	    !test_bit(STATUS_GEO_CONFIGURED, &priv->status))
 		return;
 
+	cancel_delayed_work(&priv->scan_check);
+
 	mutex_lock(&priv->mutex);
-
-	set_bit(STATUS_SCAN_ABORTING, &priv->status);
+	if (test_bit(STATUS_SCAN_ABORTING, &priv->status))
 	iwl_send_scan_abort(priv);
-
 	mutex_unlock(&priv->mutex);
 }
 EXPORT_SYMBOL(iwl_bg_abort_scan);

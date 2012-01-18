@@ -31,6 +31,7 @@ static int process_sdio_pending_irqs(struct mmc_card *card)
 {
 	int i, ret, count;
 	unsigned char pending;
+	static int irq_count = 0; //shaohua add for print more logs
 
 	ret = mmc_io_rw_direct(card, 0, 0, SDIO_CCCR_INTx, 0, &pending);
 	if (ret) {
@@ -52,8 +53,15 @@ static int process_sdio_pending_irqs(struct mmc_card *card)
 				func->irq_handler(func);
 				count++;
 			} else {
-				printk(KERN_WARNING "%s: pending IRQ with no handler\n",
-				       sdio_func_id(func));
+				//printk(KERN_WARNING "%s: pending IRQ with no handler\n",
+				 //      sdio_func_id(func));
+				 /**** shaohua add for print more logs ****/
+	 			irq_count ++;
+				if(irq_count % 50 == 0) {
+					irq_count = 0;
+					printk(KERN_WARNING "%s: pending IRQ with no handler\n", sdio_func_id(func));				
+				}
+				/**** shaohua add for print more logs ****/
 				ret = -EINVAL;
 			}
 		}
@@ -144,6 +152,16 @@ static int sdio_irq_thread(void *_host)
 	if (host->caps & MMC_CAP_SDIO_IRQ)
 		host->ops->enable_sdio_irq(host, 0);
 
+#ifdef CONFIG_ATH_WIFI
+           /* someone is trying to reclaim it? */ 
+           while (!kthread_should_stop()) { 
+                     pr_info("[%s]: [%d], wait for someone to reclaim\n", __func__, current->pid);
+                     set_current_state(TASK_INTERRUPTIBLE); 
+                     schedule_timeout(HZ); 
+                     set_current_state(TASK_RUNNING); 
+           } 
+           //wake_unlock(&mmc_sdio_irq_wake_lock);
+#endif
 	pr_debug("%s: IRQ thread exiting with code %d\n",
 		 mmc_hostname(host), ret);
 
@@ -180,7 +198,19 @@ static int sdio_card_irq_put(struct mmc_card *card)
 
 	if (!--host->sdio_irqs) {
 		atomic_set(&host->sdio_irq_thread_abort, 1);
+#ifndef CONFIG_ATH_WIFI
 		kthread_stop(host->sdio_irq_thread);
+#else
+		if (host->claimed) {
+			pr_info("[%s] host was claimed release it first\n", __FUNCTION__);
+			mmc_release_host(host);
+			kthread_stop(host->sdio_irq_thread);
+			mmc_claim_host(host);
+		} else {
+			kthread_stop(host->sdio_irq_thread);
+		}
+        pr_info("destroy  mmc_sdio_irq_wake_lock\n");	
+#endif /*CONFIG_ATH_WIFI*/
 	}
 
 	return 0;

@@ -129,8 +129,12 @@ static int __devinit i2c_gpio_probe(struct platform_device *pdev)
 	else if (pdata->scl_is_output_only)
 		bit_data->udelay = 50;			/* 10 kHz */
 	else
+	/*ZTE_AUX2_FENGYUAO_001 20091205 start*/
+	#if 0
 		bit_data->udelay = 5;			/* 100 kHz */
-
+	#endif
+		bit_data->udelay = 2;			/* 400 kHz */
+	/*ZTE_AUX2_FENGYUAO_001 20091205  end*/
 	if (pdata->timeout)
 		bit_data->timeout = pdata->timeout;
 	else

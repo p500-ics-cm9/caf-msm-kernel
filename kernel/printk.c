@@ -16,6 +16,10 @@
  *	01Mar01 Andrew Morton
  */
 
+/*20100726 liuyijian print proc info ZTE_LYJ_PRINTK_001*/
+/*20100910 yintianci prevent console-log from suspend to output log immediately. ZTE_LOG_YINTIANCI_20100910*/
+
+
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/tty.h>
@@ -37,8 +41,11 @@
 #include <linux/ratelimit.h>
 #include <linux/kmsg_dump.h>
 #include <linux/syslog.h>
-
+#include <linux/rtc.h>
 #include <asm/uaccess.h>
+/*20100726 ZTE_LYJ_PRINTK_001*/
+static int printk_proc_info = 1;
+module_param_named(printk_proc_info, printk_proc_info, int, S_IRUGO | S_IWUSR);
 
 /*
  * for_each_console() allows you to iterate on each console
@@ -54,6 +61,10 @@ void asmlinkage __attribute__((weak)) early_printk(const char *fmt, ...)
 }
 
 #define __LOG_BUF_LEN	(1 << CONFIG_LOG_BUF_SHIFT)
+
+#ifdef        CONFIG_DEBUG_LL
+extern void printascii(char *);
+#endif
 
 /* printk's without a loglevel use this.. */
 #define DEFAULT_MESSAGE_LOGLEVEL 4 /* KERN_WARNING */
@@ -259,6 +270,68 @@ static inline void boot_delay_msec(void)
 }
 #endif
 
+/*
+ * Return the number of unread characters in the log buffer.
+ */
+static int log_buf_get_len(void)
+{
+	return logged_chars;
+}
+
+/*
+ * Clears the ring-buffer
+ */
+void log_buf_clear(void)
+{
+	logged_chars = 0;
+}
+
+/*
+ * Copy a range of characters from the log buffer.
+ */
+int log_buf_copy(char *dest, int idx, int len)
+{
+	int ret, max;
+	bool took_lock = false;
+
+	if (!oops_in_progress) {
+		spin_lock_irq(&logbuf_lock);
+		took_lock = true;
+	}
+
+	max = log_buf_get_len();
+	if (idx < 0 || idx >= max) {
+		ret = -1;
+	} else {
+		if (len > max - idx)
+			len = max - idx;
+		ret = len;
+		idx += (log_end - max);
+		while (len-- > 0)
+			dest[len] = LOG_BUF(idx + len);
+	}
+
+	if (took_lock)
+		spin_unlock_irq(&logbuf_lock);
+
+	return ret;
+}
+
+/*
+ * Commands to do_syslog:
+ *
+ * 	0 -- Close the log.  Currently a NOP.
+ * 	1 -- Open the log. Currently a NOP.
+ * 	2 -- Read from the log.
+ * 	3 -- Read all messages remaining in the ring buffer.
+ * 	4 -- Read and clear all messages remaining in the ring buffer
+ * 	5 -- Clear ring buffer.
+ * 	6 -- Disable printk's to console
+ * 	7 -- Enable printk's to console
+ *	8 -- Set level of messages printed to console
+ *	9 -- Return number of unread characters in the log buffer
+ *     10 -- Return size of the log buffer
+ */
 int do_syslog(int type, char __user *buf, int len, bool from_file)
 {
 	unsigned i, j, limit, count;
@@ -734,6 +807,9 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	printed_len += vscnprintf(printk_buf + printed_len,
 				  sizeof(printk_buf) - printed_len, fmt, args);
 
+#ifdef	CONFIG_DEBUG_LL
+	printascii(printk_buf);
+#endif
 
 	p = printk_buf;
 
@@ -775,19 +851,47 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 				/* Follow the token with the time */
 				char tbuf[50], *tp;
 				unsigned tlen;
+#if 0
 				unsigned long long t;
 				unsigned long nanosec_rem;
-
+#endif
+				/* caozy: use wall time instead of jiffies. */
+				struct timespec ts;
+				struct rtc_time tm;
+				
+				ts = current_kernel_time();
+				rtc_time_to_tm(ts.tv_sec, &tm);
+				tlen = sprintf(tbuf, "[%02d-%02d %02d:%02d:%02d.%06d] ",
+					tm.tm_mon + 1, tm.tm_mday,
+					tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(ts.tv_nsec / NSEC_PER_USEC));
+#if 0
 				t = cpu_clock(printk_cpu);
 				nanosec_rem = do_div(t, 1000000000);
 				tlen = sprintf(tbuf, "[%5lu.%06lu] ",
 						(unsigned long) t,
 						nanosec_rem / 1000);
-
+#endif
 				for (tp = tbuf; tp < tbuf + tlen; tp++)
 					emit_log_char(*tp);
 				printed_len += tlen;
 			}
+/*20100726 ZTE_LYJ_PRINTK_001 start */
+			if (printk_proc_info) {
+				if (!in_interrupt()){
+				    /* Follow the token with the time */
+				    char proc_info_buf[50], *tp;
+				    unsigned info_len;
+
+				    info_len = sprintf(proc_info_buf, "[%d: %s]",
+						current->pid,
+						current->comm);
+
+				    for (tp = proc_info_buf; tp < proc_info_buf + info_len; tp++)
+					    emit_log_char(*tp);
+				    printed_len += info_len;
+				}
+			}
+/*20100726 ZTE_LYJ_PRINTK_001 end */
 
 			if (!*p)
 				break;
@@ -950,7 +1054,7 @@ int update_console_cmdline(char *name, int idx, char *name_new, int idx_new, cha
 	return -1;
 }
 
-int console_suspend_enabled = 1;
+int console_suspend_enabled = 0;//yintianci change from 1 to 0. ZTE_LOG_YINTIANCI_20100910
 EXPORT_SYMBOL(console_suspend_enabled);
 
 static int __init console_suspend_disable(char *str)

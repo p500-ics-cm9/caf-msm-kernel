@@ -93,7 +93,8 @@ void set_break_vector(int n, irqvectptr addr);
   "push $r10\n\t"       /* push orig_r10 */ \
   "clear.d [$sp=$sp-4]\n\t"  /* frametype - this is a normal stackframe */
 
-  /* BLOCK_IRQ and UNBLOCK_IRQ do the same as mask_irq and unmask_irq */
+/* BLOCK_IRQ and UNBLOCK_IRQ do the same as
+ * crisv10_mask_irq and crisv10_unmask_irq */
 
 #define BLOCK_IRQ(mask,nr) \
   "move.d " #mask ",$r0\n\t" \

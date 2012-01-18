@@ -578,15 +578,6 @@ Who:	Avi Kivity <avi@redhat.com>
 
 ----------------------------
 
-What: 	"acpi=ht" boot option
-When:	2.6.35
-Why:	Useful in 2003, implementation is a hack.
-	Generally invoked by accident today.
-	Seen as doing more harm than good.
-Who:	Len Brown <len.brown@intel.com>
-
-----------------------------
-
 What:	iwlwifi 50XX module parameters
 When:	2.6.40
 Why:	The "..50" modules parameters were used to configure 5000 series and
@@ -656,3 +647,10 @@ Who:	Stefan Richter <stefanr@s5r6.in-berlin.de>
 
 ----------------------------
 
+What:	The acpi_sleep=s4_nonvs command line option
+When:	2.6.37
+Files:	arch/x86/kernel/acpi/sleep.c
+Why:	superseded by acpi_sleep=nonvs
+Who:	Rafael J. Wysocki <rjw@sisk.pl>
+
+----------------------------
