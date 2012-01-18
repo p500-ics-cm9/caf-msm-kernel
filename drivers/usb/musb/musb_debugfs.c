@@ -36,17 +36,10 @@
 #include <linux/sched.h>
 #include <linux/init.h>
 #include <linux/list.h>
-#include <linux/kobject.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
-
-#ifdef	CONFIG_ARM
-#include <mach/hardware.h>
-#include <mach/memory.h>
-#include <asm/mach-types.h>
-#endif
 
 #include <asm/uaccess.h>
 

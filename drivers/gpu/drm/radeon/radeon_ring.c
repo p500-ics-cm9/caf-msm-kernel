@@ -35,6 +35,44 @@
 
 int radeon_debugfs_ib_init(struct radeon_device *rdev);
 
+u32 radeon_get_ib_value(struct radeon_cs_parser *p, int idx)
+{
+	struct radeon_cs_chunk *ibc = &p->chunks[p->chunk_ib_idx];
+	u32 pg_idx, pg_offset;
+	u32 idx_value = 0;
+	int new_page;
+
+	pg_idx = (idx * 4) / PAGE_SIZE;
+	pg_offset = (idx * 4) % PAGE_SIZE;
+
+	if (ibc->kpage_idx[0] == pg_idx)
+		return ibc->kpage[0][pg_offset/4];
+	if (ibc->kpage_idx[1] == pg_idx)
+		return ibc->kpage[1][pg_offset/4];
+
+	new_page = radeon_cs_update_pages(p, pg_idx);
+	if (new_page < 0) {
+		p->parser_error = new_page;
+		return 0;
+	}
+
+	idx_value = ibc->kpage[new_page][pg_offset/4];
+	return idx_value;
+}
+
+void radeon_ring_write(struct radeon_device *rdev, uint32_t v)
+{
+#if DRM_DEBUG_CODE
+	if (rdev->cp.count_dw <= 0) {
+		DRM_ERROR("radeon: writting more dword to ring than expected !\n");
+	}
+#endif
+	rdev->cp.ring[rdev->cp.wptr++] = v;
+	rdev->cp.wptr &= rdev->cp.ptr_mask;
+	rdev->cp.count_dw--;
+	rdev->cp.ring_free_dw--;
+}
+
 void radeon_ib_bogus_cleanup(struct radeon_device *rdev)
 {
 	struct radeon_ib *ib, *n;
@@ -151,7 +189,7 @@ int radeon_ib_schedule(struct radeon_device *rdev, struct radeon_ib *ib)
 	/* 64 dwords should be enough for fence too */
 	r = radeon_ring_lock(rdev, 64);
 	if (r) {
-		DRM_ERROR("radeon: scheduling IB failled (%d).\n", r);
+		DRM_ERROR("radeon: scheduling IB failed (%d).\n", r);
 		return r;
 	}
 	radeon_ring_ib_execute(rdev, ib);
@@ -175,9 +213,9 @@ int radeon_ib_pool_init(struct radeon_device *rdev)
 		return 0;
 	INIT_LIST_HEAD(&rdev->ib_pool.bogus_ib);
 	/* Allocate 1M object buffer */
-	r = radeon_bo_create(rdev, NULL,  RADEON_IB_POOL_SIZE*64*1024,
-				true, RADEON_GEM_DOMAIN_GTT,
-				&rdev->ib_pool.robj);
+	r = radeon_bo_create(rdev, RADEON_IB_POOL_SIZE*64*1024,
+			     PAGE_SIZE, true, RADEON_GEM_DOMAIN_GTT,
+			     &rdev->ib_pool.robj);
 	if (r) {
 		DRM_ERROR("radeon: failed to ib pool (%d).\n", r);
 		return r;
@@ -194,7 +232,7 @@ int radeon_ib_pool_init(struct radeon_device *rdev)
 	r = radeon_bo_kmap(rdev->ib_pool.robj, &ptr);
 	radeon_bo_unreserve(rdev->ib_pool.robj);
 	if (r) {
-		DRM_ERROR("radeon: failed to map ib poll (%d).\n", r);
+		DRM_ERROR("radeon: failed to map ib pool (%d).\n", r);
 		return r;
 	}
 	for (i = 0; i < RADEON_IB_POOL_SIZE; i++) {
@@ -247,10 +285,14 @@ void radeon_ib_pool_fini(struct radeon_device *rdev)
  */
 void radeon_ring_free_size(struct radeon_device *rdev)
 {
-	if (rdev->family >= CHIP_R600)
-		rdev->cp.rptr = RREG32(R600_CP_RB_RPTR);
-	else
-		rdev->cp.rptr = RREG32(RADEON_CP_RB_RPTR);
+	if (rdev->wb.enabled)
+		rdev->cp.rptr = le32_to_cpu(rdev->wb.wb[RADEON_WB_CP_RPTR_OFFSET/4]);
+	else {
+		if (rdev->family >= CHIP_R600)
+			rdev->cp.rptr = RREG32(R600_CP_RB_RPTR);
+		else
+			rdev->cp.rptr = RREG32(RADEON_CP_RB_RPTR);
+	}
 	/* This works because ring_size is a power of 2 */
 	rdev->cp.ring_free_dw = (rdev->cp.rptr + (rdev->cp.ring_size / 4));
 	rdev->cp.ring_free_dw -= rdev->cp.wptr;
@@ -328,7 +370,7 @@ int radeon_ring_init(struct radeon_device *rdev, unsigned ring_size)
 	rdev->cp.ring_size = ring_size;
 	/* Allocate ring buffer */
 	if (rdev->cp.ring_obj == NULL) {
-		r = radeon_bo_create(rdev, NULL, rdev->cp.ring_size, true,
+		r = radeon_bo_create(rdev, rdev->cp.ring_size, PAGE_SIZE, true,
 					RADEON_GEM_DOMAIN_GTT,
 					&rdev->cp.ring_obj);
 		if (r) {

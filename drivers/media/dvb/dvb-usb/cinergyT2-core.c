@@ -69,7 +69,7 @@ static int cinergyt2_frontend_attach(struct dvb_usb_adapter *adap)
 	char state[3];
 	int ret;
 
-	adap->fe = cinergyt2_fe_attach(adap->dev);
+	adap->fe_adap[0].fe = cinergyt2_fe_attach(adap->dev);
 
 	ret = dvb_usb_generic_rw(adap->dev, query, sizeof(query), state,
 				sizeof(state), 0);
@@ -84,7 +84,7 @@ static int cinergyt2_frontend_attach(struct dvb_usb_adapter *adap)
 	return 0;
 }
 
-static struct dvb_usb_rc_key ir_codes_cinergyt2_table[] = {
+static struct rc_map_table rc_map_cinergyt2_table[] = {
 	{ 0x0401, KEY_POWER },
 	{ 0x0402, KEY_1 },
 	{ 0x0403, KEY_2 },
@@ -198,6 +198,8 @@ static struct dvb_usb_device_properties cinergyt2_properties = {
 	.num_adapters = 1,
 	.adapter = {
 		{
+		.num_frontends = 1,
+		.fe = {{
 			.streaming_ctrl   = cinergyt2_streaming_ctrl,
 			.frontend_attach  = cinergyt2_frontend_attach,
 
@@ -212,15 +214,18 @@ static struct dvb_usb_device_properties cinergyt2_properties = {
 					}
 				}
 			},
+		}},
 		}
 	},
 
 	.power_ctrl       = cinergyt2_power_ctrl,
 
-	.rc_interval      = 50,
-	.rc_key_map       = ir_codes_cinergyt2_table,
-	.rc_key_map_size  = ARRAY_SIZE(ir_codes_cinergyt2_table),
-	.rc_query         = cinergyt2_rc_query,
+	.rc.legacy = {
+		.rc_interval      = 50,
+		.rc_map_table     = rc_map_cinergyt2_table,
+		.rc_map_size      = ARRAY_SIZE(rc_map_cinergyt2_table),
+		.rc_query         = cinergyt2_rc_query,
+	},
 
 	.generic_bulk_ctrl_endpoint = 1,
 

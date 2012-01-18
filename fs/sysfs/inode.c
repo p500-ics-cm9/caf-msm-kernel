@@ -19,6 +19,7 @@
 #include <linux/errno.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/sysfs.h>
 #include <linux/xattr.h>
 #include <linux/security.h>
 #include "sysfs.h"
@@ -122,7 +123,7 @@ int sysfs_setattr(struct dentry *dentry, struct iattr *iattr)
 		goto out;
 
 	/* this ignores size changes */
-	generic_setattr(inode, iattr);
+	setattr_copy(inode, iattr);
 
 out:
 	mutex_unlock(&sysfs_mutex);
@@ -201,18 +202,6 @@ static inline void set_inode_attr(struct inode * inode, struct iattr * iattr)
 	inode->i_ctime = iattr->ia_ctime;
 }
 
-static int sysfs_count_nlink(struct sysfs_dirent *sd)
-{
-	struct sysfs_dirent *child;
-	int nr = 0;
-
-	for (child = sd->s_dir.children; child; child = child->s_sibling)
-		if (sysfs_type(child) == SYSFS_DIR)
-			nr++;
-
-	return nr + 2;
-}
-
 static void sysfs_refresh_inode(struct sysfs_dirent *sd, struct inode *inode)
 {
 	struct sysfs_inode_attrs *iattrs = sd->s_iattr;
@@ -229,7 +218,7 @@ static void sysfs_refresh_inode(struct sysfs_dirent *sd, struct inode *inode)
 	}
 
 	if (sysfs_type(sd) == SYSFS_DIR)
-		inode->i_nlink = sysfs_count_nlink(sd);
+		inode->i_nlink = sd->s_dir.subdirs + 2;
 }
 
 int sysfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat)
@@ -312,15 +301,15 @@ struct inode * sysfs_get_inode(struct super_block *sb, struct sysfs_dirent *sd)
  * The sysfs_dirent serves as both an inode and a directory entry for sysfs.
  * To prevent the sysfs inode numbers from being freed prematurely we take a
  * reference to sysfs_dirent from the sysfs inode.  A
- * super_operations.delete_inode() implementation is needed to drop that
+ * super_operations.evict_inode() implementation is needed to drop that
  * reference upon inode destruction.
  */
-void sysfs_delete_inode(struct inode *inode)
+void sysfs_evict_inode(struct inode *inode)
 {
 	struct sysfs_dirent *sd  = inode->i_private;
 
 	truncate_inode_pages(&inode->i_data, 0);
-	clear_inode(inode);
+	end_writeback(inode);
 	sysfs_put(sd);
 }
 
@@ -335,8 +324,6 @@ int sysfs_hash_and_remove(struct sysfs_dirent *dir_sd, const void *ns, const cha
 	sysfs_addrm_start(&acxt, dir_sd);
 
 	sd = sysfs_find_dirent(dir_sd, ns, name);
-	if (sd && (sd->s_ns != ns))
-		sd = NULL;
 	if (sd)
 		sysfs_remove_one(&acxt, sd);
 
@@ -350,11 +337,16 @@ int sysfs_hash_and_remove(struct sysfs_dirent *dir_sd, const void *ns, const cha
 
 int sysfs_permission(struct inode *inode, int mask)
 {
-	struct sysfs_dirent *sd = inode->i_private;
+	struct sysfs_dirent *sd;
+
+	if (mask & MAY_NOT_BLOCK)
+		return -ECHILD;
+
+	sd = inode->i_private;
 
 	mutex_lock(&sysfs_mutex);
 	sysfs_refresh_inode(sd, inode);
 	mutex_unlock(&sysfs_mutex);
 
-	return generic_permission(inode, mask, NULL);
+	return generic_permission(inode, mask);
 }

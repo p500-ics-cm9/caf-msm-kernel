@@ -40,7 +40,6 @@ static const struct stb0899_s1_reg az6027_stb0899_s1_init_1[] = {
 	{ STB0899_DISRX_ST0     	, 0x04 },
 	{ STB0899_DISRX_ST1     	, 0x00 },
 	{ STB0899_DISPARITY     	, 0x00 },
-	{ STB0899_DISFIFO       	, 0x00 },
 	{ STB0899_DISSTATUS		, 0x20 },
 	{ STB0899_DISF22        	, 0x99 },
 	{ STB0899_DISF22RX      	, 0xa8 },
@@ -386,7 +385,7 @@ static int az6027_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 }
 
 /* keys for the enclosed remote control */
-static struct dvb_usb_rc_key ir_codes_az6027_table[] = {
+static struct rc_map_table rc_map_az6027_table[] = {
 	{ 0x01, KEY_1 },
 	{ 0x02, KEY_2 },
 };
@@ -782,7 +781,6 @@ static int az6027_set_voltage(struct dvb_frontend *fe, fe_sec_voltage_t voltage)
 {
 
 	u8 buf;
-	int ret;
 	struct dvb_usb_adapter *adap = fe->dvb->priv;
 
 	struct i2c_msg i2c_msg = {
@@ -800,17 +798,17 @@ static int az6027_set_voltage(struct dvb_frontend *fe, fe_sec_voltage_t voltage)
 	switch (voltage) {
 	case SEC_VOLTAGE_13:
 		buf = 1;
-		ret = i2c_transfer(&adap->dev->i2c_adap, &i2c_msg, 1);
+		i2c_transfer(&adap->dev->i2c_adap, &i2c_msg, 1);
 		break;
 
 	case SEC_VOLTAGE_18:
 		buf = 2;
-		ret = i2c_transfer(&adap->dev->i2c_adap, &i2c_msg, 1);
+		i2c_transfer(&adap->dev->i2c_adap, &i2c_msg, 1);
 		break;
 
 	case SEC_VOLTAGE_OFF:
 		buf = 0;
-		ret = i2c_transfer(&adap->dev->i2c_adap, &i2c_msg, 1);
+		i2c_transfer(&adap->dev->i2c_adap, &i2c_msg, 1);
 		break;
 
 	default:
@@ -910,16 +908,16 @@ static int az6027_frontend_attach(struct dvb_usb_adapter *adap)
 	az6027_frontend_reset(adap);
 
 	deb_info("adap = %p, dev = %p\n", adap, adap->dev);
-	adap->fe = stb0899_attach(&az6027_stb0899_config, &adap->dev->i2c_adap);
+	adap->fe_adap[0].fe = stb0899_attach(&az6027_stb0899_config, &adap->dev->i2c_adap);
 
-	if (adap->fe) {
+	if (adap->fe_adap[0].fe) {
 		deb_info("found STB0899 DVB-S/DVB-S2 frontend @0x%02x", az6027_stb0899_config.demod_address);
-		if (stb6100_attach(adap->fe, &az6027_stb6100_config, &adap->dev->i2c_adap)) {
+		if (stb6100_attach(adap->fe_adap[0].fe, &az6027_stb6100_config, &adap->dev->i2c_adap)) {
 			deb_info("found STB6100 DVB-S/DVB-S2 frontend @0x%02x", az6027_stb6100_config.tuner_address);
-			adap->fe->ops.set_voltage = az6027_set_voltage;
+			adap->fe_adap[0].fe->ops.set_voltage = az6027_set_voltage;
 			az6027_ci_init(adap);
 		} else {
-			adap->fe = NULL;
+			adap->fe_adap[0].fe = NULL;
 		}
 	} else
 		warn("no front-end attached\n");
@@ -954,7 +952,6 @@ static int az6027_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[], int n
 {
 	struct dvb_usb_device *d = i2c_get_adapdata(adap);
 	int i = 0, j = 0, len = 0;
-	int ret;
 	u16 index;
 	u16 value;
 	int length;
@@ -990,7 +987,7 @@ static int az6027_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[], int n
 				index = (((msg[i].buf[0] << 8) & 0xff00) | (msg[i].buf[1] & 0x00ff));
 				value = msg[i].addr + (msg[i].len << 8);
 				length = msg[i + 1].len + 6;
-				ret = az6027_usb_in_op(d, req, value, index, data, length);
+				az6027_usb_in_op(d, req, value, index, data, length);
 				len = msg[i + 1].len;
 				for (j = 0; j < len; j++)
 					msg[i + 1].buf[j] = data[j + 5];
@@ -1017,7 +1014,7 @@ static int az6027_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[], int n
 				index = 0x0;
 				value = msg[i].addr;
 				length = msg[i].len + 6;
-				ret = az6027_usb_in_op(d, req, value, index, data, length);
+				az6027_usb_in_op(d, req, value, index, data, length);
 				len = msg[i].len;
 				for (j = 0; j < len; j++)
 					msg[i].buf[j] = data[j + 5];
@@ -1089,6 +1086,7 @@ static struct usb_device_id az6027_usb_table[] = {
 	{ USB_DEVICE(USB_VID_TERRATEC,  USB_PID_TERRATEC_DVBS2CI_V2) },
 	{ USB_DEVICE(USB_VID_TECHNISAT, USB_PID_TECHNISAT_USB2_HDCI_V1) },
 	{ USB_DEVICE(USB_VID_TECHNISAT, USB_PID_TECHNISAT_USB2_HDCI_V2) },
+	{ USB_DEVICE(USB_VID_ELGATO, USB_PID_ELGATO_EYETV_SAT) },
 	{ },
 };
 
@@ -1105,6 +1103,8 @@ static struct dvb_usb_device_properties az6027_properties = {
 	.num_adapters = 1,
 	.adapter = {
 		{
+		.num_frontends = 1,
+		.fe = {{
 			.streaming_ctrl   = az6027_streaming_ctrl,
 			.frontend_attach  = az6027_frontend_attach,
 
@@ -1119,19 +1119,23 @@ static struct dvb_usb_device_properties az6027_properties = {
 					}
 				}
 			},
+		}},
 		}
 	},
 /*
 	.power_ctrl       = az6027_power_ctrl,
 	.read_mac_address = az6027_read_mac_addr,
  */
-	.rc_key_map       = ir_codes_az6027_table,
-	.rc_key_map_size  = ARRAY_SIZE(ir_codes_az6027_table),
-	.rc_interval      = 400,
-	.rc_query         = az6027_rc_query,
+	.rc.legacy = {
+		.rc_map_table     = rc_map_az6027_table,
+		.rc_map_size      = ARRAY_SIZE(rc_map_az6027_table),
+		.rc_interval      = 400,
+		.rc_query         = az6027_rc_query,
+	},
+
 	.i2c_algo         = &az6027_i2c_algo,
 
-	.num_device_descs = 5,
+	.num_device_descs = 6,
 	.devices = {
 		{
 			.name = "AZUREWAVE DVB-S/S2 USB2.0 (AZ6027)",
@@ -1152,6 +1156,10 @@ static struct dvb_usb_device_properties az6027_properties = {
 		}, {
 			.name = "Technisat SkyStar USB 2 HD CI",
 			.cold_ids = { &az6027_usb_table[4], NULL },
+			.warm_ids = { NULL },
+		}, {
+			.name = "Elgato EyeTV Sat",
+			.cold_ids = { &az6027_usb_table[5], NULL },
 			.warm_ids = { NULL },
 		},
 		{ NULL },

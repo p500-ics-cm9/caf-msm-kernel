@@ -19,11 +19,13 @@
 #include <linux/kernel_stat.h>
 #include <linux/rcupdate.h>
 #include <linux/posix-timers.h>
+#include <linux/cpu.h>
+#include <linux/kprobes.h>
 
-#include <asm/s390_ext.h>
 #include <asm/timer.h>
 #include <asm/irq_regs.h>
 #include <asm/cputime.h>
+#include <asm/irq.h>
 
 static DEFINE_PER_CPU(struct vtimer_queue, virt_cpu_timer);
 
@@ -42,7 +44,7 @@ static inline void set_vtimer(__u64 expires)
 	__u64 timer;
 
 	asm volatile ("  STPT %0\n"  /* Store current cpu timer value */
-		      "  SPT %1"     /* Set new value immediatly afterwards */
+		      "  SPT %1"     /* Set new value immediately afterwards */
 		      : "=m" (timer) : "m" (expires) );
 	S390_lowcore.system_timer += S390_lowcore.last_update_timer - timer;
 	S390_lowcore.last_update_timer = expires;
@@ -121,7 +123,7 @@ void account_system_vtime(struct task_struct *tsk)
 }
 EXPORT_SYMBOL_GPL(account_system_vtime);
 
-void vtime_start_cpu(__u64 int_clock, __u64 enter_timer)
+void __kprobes vtime_start_cpu(__u64 int_clock, __u64 enter_timer)
 {
 	struct s390_idle_data *idle = &__get_cpu_var(s390_idle);
 	struct vtimer_queue *vq = &__get_cpu_var(virt_cpu_timer);
@@ -161,14 +163,15 @@ void vtime_start_cpu(__u64 int_clock, __u64 enter_timer)
 	idle->sequence++;
 }
 
-void vtime_stop_cpu(void)
+void __kprobes vtime_stop_cpu(void)
 {
 	struct s390_idle_data *idle = &__get_cpu_var(s390_idle);
 	struct vtimer_queue *vq = &__get_cpu_var(virt_cpu_timer);
 	psw_t psw;
 
 	/* Wait for external, I/O or machine check interrupt. */
-	psw.mask = psw_kernel_bits | PSW_MASK_WAIT | PSW_MASK_IO | PSW_MASK_EXT;
+	psw.mask = psw_kernel_bits | PSW_MASK_WAIT |
+		PSW_MASK_DAT | PSW_MASK_IO | PSW_MASK_EXT | PSW_MASK_MCHECK;
 
 	idle->nohz_delay = 0;
 
@@ -181,7 +184,8 @@ void vtime_stop_cpu(void)
 		 *	set_cpu_timer(VTIMER_MAX_SLICE);
 		 *	idle->idle_enter = get_clock();
 		 *	__load_psw_mask(psw_kernel_bits | PSW_MASK_WAIT |
-		 *			   PSW_MASK_IO | PSW_MASK_EXT);
+		 *			   PSW_MASK_DAT | PSW_MASK_IO |
+		 *			   PSW_MASK_EXT | PSW_MASK_MCHECK);
 		 * The difference is that the inline assembly makes sure that
 		 * the last three instruction are stpt, stck and lpsw in that
 		 * order. This is done to increase the precision.
@@ -214,7 +218,8 @@ void vtime_stop_cpu(void)
 		 *	vq->idle = get_cpu_timer();
 		 *	idle->idle_enter = get_clock();
 		 *	__load_psw_mask(psw_kernel_bits | PSW_MASK_WAIT |
-		 *			   PSW_MASK_IO | PSW_MASK_EXT);
+		 *			   PSW_MASK_DAT | PSW_MASK_IO |
+		 *			   PSW_MASK_EXT | PSW_MASK_MCHECK);
 		 * The difference is that the inline assembly makes sure that
 		 * the last three instruction are stpt, stck and lpsw in that
 		 * order. This is done to increase the precision.
@@ -314,13 +319,15 @@ static void do_callbacks(struct list_head *cb_list)
 /*
  * Handler for the virtual CPU timer.
  */
-static void do_cpu_timer_interrupt(__u16 error_code)
+static void do_cpu_timer_interrupt(unsigned int ext_int_code,
+				   unsigned int param32, unsigned long param64)
 {
 	struct vtimer_queue *vq;
 	struct vtimer_list *event, *tmp;
 	struct list_head cb_list;	/* the callback queue */
 	__u64 elapsed, next;
 
+	kstat_cpu(smp_processor_id()).irqs[EXTINT_TMR]++;
 	INIT_LIST_HEAD(&cb_list);
 	vq = &__get_cpu_var(virt_cpu_timer);
 
@@ -454,7 +461,7 @@ void add_virt_timer_periodic(void *new)
 }
 EXPORT_SYMBOL(add_virt_timer_periodic);
 
-int __mod_vtimer(struct vtimer_list *timer, __u64 expires, int periodic)
+static int __mod_vtimer(struct vtimer_list *timer, __u64 expires, int periodic)
 {
 	struct vtimer_queue *vq;
 	unsigned long flags;
@@ -565,6 +572,23 @@ void init_cpu_vtimer(void)
 	__ctl_set_bit(0,10);
 }
 
+static int __cpuinit s390_nohz_notify(struct notifier_block *self,
+				      unsigned long action, void *hcpu)
+{
+	struct s390_idle_data *idle;
+	long cpu = (long) hcpu;
+
+	idle = &per_cpu(s390_idle, cpu);
+	switch (action) {
+	case CPU_DYING:
+	case CPU_DYING_FROZEN:
+		idle->nohz_delay = 0;
+	default:
+		break;
+	}
+	return NOTIFY_OK;
+}
+
 void __init vtime_init(void)
 {
 	/* request the cpu timer external interrupt */
@@ -573,5 +597,6 @@ void __init vtime_init(void)
 
 	/* Enable cpu timer interrupts on the boot cpu. */
 	init_cpu_vtimer();
+	cpu_notifier(s390_nohz_notify, 0);
 }
 

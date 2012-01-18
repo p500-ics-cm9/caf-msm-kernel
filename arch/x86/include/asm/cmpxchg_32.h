@@ -1,56 +1,10 @@
 #ifndef _ASM_X86_CMPXCHG_32_H
 #define _ASM_X86_CMPXCHG_32_H
 
-#include <linux/bitops.h> /* for LOCK_PREFIX */
-
 /*
  * Note: if you use set64_bit(), __cmpxchg64(), or their variants, you
  *       you need to test for the feature in boot_cpu_data.
  */
-
-extern void __xchg_wrong_size(void);
-
-/*
- * Note: no "lock" prefix even on SMP: xchg always implies lock anyway
- * Note 2: xchg has side effect, so that attribute volatile is necessary,
- *	  but generally the primitive is invalid, *ptr is output argument. --ANK
- */
-
-struct __xchg_dummy {
-	unsigned long a[100];
-};
-#define __xg(x) ((struct __xchg_dummy *)(x))
-
-#define __xchg(x, ptr, size)						\
-({									\
-	__typeof(*(ptr)) __x = (x);					\
-	switch (size) {							\
-	case 1:								\
-		asm volatile("xchgb %b0,%1"				\
-			     : "=q" (__x), "+m" (*__xg(ptr))		\
-			     : "0" (__x)				\
-			     : "memory");				\
-		break;							\
-	case 2:								\
-		asm volatile("xchgw %w0,%1"				\
-			     : "=r" (__x), "+m" (*__xg(ptr))		\
-			     : "0" (__x)				\
-			     : "memory");				\
-		break;							\
-	case 4:								\
-		asm volatile("xchgl %0,%1"				\
-			     : "=r" (__x), "+m" (*__xg(ptr))		\
-			     : "0" (__x)				\
-			     : "memory");				\
-		break;							\
-	default:							\
-		__xchg_wrong_size();					\
-	}								\
-	__x;								\
-})
-
-#define xchg(ptr, v)							\
-	__xchg((v), (ptr), sizeof(*ptr))
 
 /*
  * CMPXCHG8B only writes to the target if we had the previous
@@ -80,63 +34,8 @@ static inline void set_64bit(volatile u64 *ptr, u64 value)
 		     : "memory");
 }
 
-extern void __cmpxchg_wrong_size(void);
-
-/*
- * Atomic compare and exchange.  Compare OLD with MEM, if identical,
- * store NEW in MEM.  Return the initial value in MEM.  Success is
- * indicated by comparing RETURN with OLD.
- */
-#define __raw_cmpxchg(ptr, old, new, size, lock)			\
-({									\
-	__typeof__(*(ptr)) __ret;					\
-	__typeof__(*(ptr)) __old = (old);				\
-	__typeof__(*(ptr)) __new = (new);				\
-	switch (size) {							\
-	case 1:								\
-		asm volatile(lock "cmpxchgb %b2,%1"			\
-			     : "=a" (__ret), "+m" (*__xg(ptr))		\
-			     : "q" (__new), "0" (__old)			\
-			     : "memory");				\
-		break;							\
-	case 2:								\
-		asm volatile(lock "cmpxchgw %w2,%1"			\
-			     : "=a" (__ret), "+m" (*__xg(ptr))		\
-			     : "r" (__new), "0" (__old)			\
-			     : "memory");				\
-		break;							\
-	case 4:								\
-		asm volatile(lock "cmpxchgl %2,%1"			\
-			     : "=a" (__ret), "+m" (*__xg(ptr))		\
-			     : "r" (__new), "0" (__old)			\
-			     : "memory");				\
-		break;							\
-	default:							\
-		__cmpxchg_wrong_size();					\
-	}								\
-	__ret;								\
-})
-
-#define __cmpxchg(ptr, old, new, size)					\
-	__raw_cmpxchg((ptr), (old), (new), (size), LOCK_PREFIX)
-
-#define __sync_cmpxchg(ptr, old, new, size)				\
-	__raw_cmpxchg((ptr), (old), (new), (size), "lock; ")
-
-#define __cmpxchg_local(ptr, old, new, size)				\
-	__raw_cmpxchg((ptr), (old), (new), (size), "")
-
 #ifdef CONFIG_X86_CMPXCHG
 #define __HAVE_ARCH_CMPXCHG 1
-
-#define cmpxchg(ptr, old, new)						\
-	__cmpxchg((ptr), (old), (new), sizeof(*ptr))
-
-#define sync_cmpxchg(ptr, old, new)					\
-	__sync_cmpxchg((ptr), (old), (new), sizeof(*ptr))
-
-#define cmpxchg_local(ptr, old, new)					\
-	__cmpxchg_local((ptr), (old), (new), sizeof(*ptr))
 #endif
 
 #ifdef CONFIG_X86_CMPXCHG64
@@ -148,31 +47,27 @@ extern void __cmpxchg_wrong_size(void);
 					       (unsigned long long)(n)))
 #endif
 
-static inline unsigned long long __cmpxchg64(volatile void *ptr,
-					     unsigned long long old,
-					     unsigned long long new)
+static inline u64 __cmpxchg64(volatile u64 *ptr, u64 old, u64 new)
 {
-	unsigned long long prev;
+	u64 prev;
 	asm volatile(LOCK_PREFIX "cmpxchg8b %1"
 		     : "=A" (prev),
-		       "+m" (*__xg(ptr))
-		     : "b" ((unsigned long)new),
-		       "c" ((unsigned long)(new >> 32)),
+		       "+m" (*ptr)
+		     : "b" ((u32)new),
+		       "c" ((u32)(new >> 32)),
 		       "0" (old)
 		     : "memory");
 	return prev;
 }
 
-static inline unsigned long long __cmpxchg64_local(volatile void *ptr,
-						   unsigned long long old,
-						   unsigned long long new)
+static inline u64 __cmpxchg64_local(volatile u64 *ptr, u64 old, u64 new)
 {
-	unsigned long long prev;
+	u64 prev;
 	asm volatile("cmpxchg8b %1"
 		     : "=A" (prev),
-		       "+m" (*__xg(ptr))
-		     : "b" ((unsigned long)new),
-		       "c" ((unsigned long)(new >> 32)),
+		       "+m" (*ptr)
+		     : "b" ((u32)new),
+		       "c" ((u32)(new >> 32)),
 		       "0" (old)
 		     : "memory");
 	return prev;
@@ -237,8 +132,6 @@ static inline unsigned long cmpxchg_386(volatile void *ptr, unsigned long old,
  * to simulate the cmpxchg8b on the 80386 and 80486 CPU.
  */
 
-extern unsigned long long cmpxchg_486_u64(volatile void *, u64, u64);
-
 #define cmpxchg64(ptr, o, n)					\
 ({								\
 	__typeof__(*(ptr)) __ret;				\
@@ -256,21 +149,69 @@ extern unsigned long long cmpxchg_486_u64(volatile void *, u64, u64);
 	__ret; })
 
 
-
-#define cmpxchg64_local(ptr, o, n)					\
-({									\
-	__typeof__(*(ptr)) __ret;					\
-	if (likely(boot_cpu_data.x86 > 4))				\
-		__ret = (__typeof__(*(ptr)))__cmpxchg64_local((ptr),	\
-				(unsigned long long)(o),		\
-				(unsigned long long)(n));		\
-	else								\
-		__ret = (__typeof__(*(ptr)))cmpxchg_486_u64((ptr),	\
-				(unsigned long long)(o),		\
-				(unsigned long long)(n));		\
-	__ret;								\
-})
+#define cmpxchg64_local(ptr, o, n)				\
+({								\
+	__typeof__(*(ptr)) __ret;				\
+	__typeof__(*(ptr)) __old = (o);				\
+	__typeof__(*(ptr)) __new = (n);				\
+	alternative_io("call cmpxchg8b_emu",			\
+		       "cmpxchg8b (%%esi)" ,			\
+		       X86_FEATURE_CX8,				\
+		       "=A" (__ret),				\
+		       "S" ((ptr)), "0" (__old),		\
+		       "b" ((unsigned int)__new),		\
+		       "c" ((unsigned int)(__new>>32))		\
+		       : "memory");				\
+	__ret; })
 
 #endif
+
+#define cmpxchg8b(ptr, o1, o2, n1, n2)				\
+({								\
+	char __ret;						\
+	__typeof__(o2) __dummy;					\
+	__typeof__(*(ptr)) __old1 = (o1);			\
+	__typeof__(o2) __old2 = (o2);				\
+	__typeof__(*(ptr)) __new1 = (n1);			\
+	__typeof__(o2) __new2 = (n2);				\
+	asm volatile(LOCK_PREFIX "cmpxchg8b %2; setz %1"	\
+		       : "=d"(__dummy), "=a" (__ret), "+m" (*ptr)\
+		       : "a" (__old1), "d"(__old2),		\
+		         "b" (__new1), "c" (__new2)		\
+		       : "memory");				\
+	__ret; })
+
+
+#define cmpxchg8b_local(ptr, o1, o2, n1, n2)			\
+({								\
+	char __ret;						\
+	__typeof__(o2) __dummy;					\
+	__typeof__(*(ptr)) __old1 = (o1);			\
+	__typeof__(o2) __old2 = (o2);				\
+	__typeof__(*(ptr)) __new1 = (n1);			\
+	__typeof__(o2) __new2 = (n2);				\
+	asm volatile("cmpxchg8b %2; setz %1"			\
+		       : "=d"(__dummy), "=a"(__ret), "+m" (*ptr)\
+		       : "a" (__old), "d"(__old2),		\
+		         "b" (__new1), "c" (__new2),		\
+		       : "memory");				\
+	__ret; })
+
+
+#define cmpxchg_double(ptr, o1, o2, n1, n2)				\
+({									\
+	BUILD_BUG_ON(sizeof(*(ptr)) != 4);				\
+	VM_BUG_ON((unsigned long)(ptr) % 8);				\
+	cmpxchg8b((ptr), (o1), (o2), (n1), (n2));			\
+})
+
+#define cmpxchg_double_local(ptr, o1, o2, n1, n2)			\
+({									\
+       BUILD_BUG_ON(sizeof(*(ptr)) != 4);				\
+       VM_BUG_ON((unsigned long)(ptr) % 8);				\
+       cmpxchg16b_local((ptr), (o1), (o2), (n1), (n2));			\
+})
+
+#define system_has_cmpxchg_double() cpu_has_cx8
 
 #endif /* _ASM_X86_CMPXCHG_32_H */

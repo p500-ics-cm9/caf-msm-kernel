@@ -175,12 +175,13 @@ static int ehci_hcd_au1xxx_drv_probe(struct platform_device *pdev)
 
 	ehci = hcd_to_ehci(hcd);
 	ehci->caps = hcd->regs;
-	ehci->regs = hcd->regs + HC_LENGTH(readl(&ehci->caps->hc_capbase));
+	ehci->regs = hcd->regs +
+		HC_LENGTH(ehci, readl(&ehci->caps->hc_capbase));
 	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = readl(&ehci->caps->hcs_params);
 
 	ret = usb_add_hcd(hcd, pdev->resource[1].start,
-			  IRQF_DISABLED | IRQF_SHARED);
+			  IRQF_SHARED);
 	if (ret == 0) {
 		platform_set_drvdata(pdev, hcd);
 		return ret;
@@ -215,10 +216,7 @@ static int ehci_hcd_au1xxx_drv_suspend(struct device *dev)
 	struct usb_hcd *hcd = dev_get_drvdata(dev);
 	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
 	unsigned long flags;
-	int rc;
-
-	return 0;
-	rc = 0;
+	int rc = 0;
 
 	if (time_before(jiffies, ehci->next_statechange))
 		msleep(10);
@@ -227,18 +225,18 @@ static int ehci_hcd_au1xxx_drv_suspend(struct device *dev)
 	 * mark HW unaccessible.  The PM and USB cores make sure that
 	 * the root hub is either suspended or stopped.
 	 */
+	ehci_prepare_ports_for_controller_suspend(ehci, device_may_wakeup(dev));
 	spin_lock_irqsave(&ehci->lock, flags);
-	ehci_prepare_ports_for_controller_suspend(ehci);
 	ehci_writel(ehci, 0, &ehci->regs->intr_enable);
 	(void)ehci_readl(ehci, &ehci->regs->intr_enable);
 
 	clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
-
-	au1xxx_stop_ehc();
 	spin_unlock_irqrestore(&ehci->lock, flags);
 
 	// could save FLADJ in case of Vaux power loss
 	// ... we'd only use it to handle clock skew
+
+	au1xxx_stop_ehc();
 
 	return rc;
 }
@@ -295,7 +293,7 @@ static int ehci_hcd_au1xxx_drv_resume(struct device *dev)
 	/* here we "know" root ports should always stay powered */
 	ehci_port_power(ehci, 1);
 
-	hcd->state = HC_STATE_SUSPENDED;
+	ehci->rh_state = EHCI_RH_SUSPENDED;
 
 	return 0;
 }

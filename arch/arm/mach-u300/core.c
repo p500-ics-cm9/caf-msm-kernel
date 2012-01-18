@@ -3,7 +3,7 @@
  * arch/arm/mach-u300/core.c
  *
  *
- * Copyright (C) 2007-2010 ST-Ericsson AB
+ * Copyright (C) 2007-2010 ST-Ericsson SA
  * License terms: GNU General Public License (GPL) version 2
  * Core platform support, IRQ handling and device definitions.
  * Author: Linus Walleij <linus.walleij@stericsson.com>
@@ -16,10 +16,18 @@
 #include <linux/device.h>
 #include <linux/mm.h>
 #include <linux/termios.h>
+#include <linux/dmaengine.h>
 #include <linux/amba/bus.h>
+#include <linux/amba/serial.h>
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
-#include <mach/coh901318.h>
+#include <linux/clk.h>
+#include <linux/err.h>
+#include <linux/mtd/nand.h>
+#include <linux/mtd/fsmc.h>
+#include <linux/pinctrl/machine.h>
+#include <linux/pinctrl/pinmux.h>
+#include <linux/dma-mapping.h>
 
 #include <asm/types.h>
 #include <asm/setup.h>
@@ -28,9 +36,11 @@
 #include <asm/mach/map.h>
 #include <asm/mach/irq.h>
 
+#include <mach/coh901318.h>
 #include <mach/hardware.h>
 #include <mach/syscon.h>
 #include <mach/dma_channels.h>
+#include <mach/gpio-u300.h>
 
 #include "clock.h"
 #include "mmc.h"
@@ -86,16 +96,28 @@ static struct map_desc u300_io_desc[] __initdata = {
 void __init u300_map_io(void)
 {
 	iotable_init(u300_io_desc, ARRAY_SIZE(u300_io_desc));
+	/* We enable a real big DMA buffer if need be. */
+	init_consistent_dma_size(SZ_4M);
 }
 
 /*
  * Declaration of devices found on the U300 board and
  * their respective memory locations.
  */
+
+static struct amba_pl011_data uart0_plat_data = {
+#ifdef CONFIG_COH901318
+	.dma_filter = coh901318_filter_id,
+	.dma_rx_param = (void *) U300_DMA_UART0_RX,
+	.dma_tx_param = (void *) U300_DMA_UART0_TX,
+#endif
+};
+
 static struct amba_device uart0_device = {
 	.dev = {
+		.coherent_dma_mask = ~0,
 		.init_name = "uart0", /* Slow device at 0x3000 offset */
-		.platform_data = NULL,
+		.platform_data = &uart0_plat_data,
 	},
 	.res = {
 		.start = U300_UART0_BASE,
@@ -107,10 +129,19 @@ static struct amba_device uart0_device = {
 
 /* The U335 have an additional UART1 on the APP CPU */
 #ifdef CONFIG_MACH_U300_BS335
+static struct amba_pl011_data uart1_plat_data = {
+#ifdef CONFIG_COH901318
+	.dma_filter = coh901318_filter_id,
+	.dma_rx_param = (void *) U300_DMA_UART1_RX,
+	.dma_tx_param = (void *) U300_DMA_UART1_TX,
+#endif
+};
+
 static struct amba_device uart1_device = {
 	.dev = {
+		.coherent_dma_mask = ~0,
 		.init_name = "uart1", /* Fast device at 0x7000 offset */
-		.platform_data = NULL,
+		.platform_data = &uart1_plat_data,
 	},
 	.res = {
 		.start = U300_UART1_BASE,
@@ -214,7 +245,7 @@ static struct resource gpio_resources[] = {
 		.end   = IRQ_U300_GPIO_PORT2,
 		.flags = IORESOURCE_IRQ,
 	},
-#ifdef U300_COH901571_3
+#if defined(CONFIG_MACH_U300_BS365) || defined(CONFIG_MACH_U300_BS335)
 	{
 		.name  = "gpio3",
 		.start = IRQ_U300_GPIO_PORT3,
@@ -227,6 +258,7 @@ static struct resource gpio_resources[] = {
 		.end   = IRQ_U300_GPIO_PORT4,
 		.flags = IORESOURCE_IRQ,
 	},
+#endif
 #ifdef CONFIG_MACH_U300_BS335
 	{
 		.name  = "gpio5",
@@ -241,7 +273,6 @@ static struct resource gpio_resources[] = {
 		.flags = IORESOURCE_IRQ,
 	},
 #endif /* CONFIG_MACH_U300_BS335 */
-#endif /* U300_COH901571_3 */
 };
 
 static struct resource keypad_resources[] = {
@@ -283,6 +314,13 @@ static struct resource rtc_resources[] = {
  */
 static struct resource fsmc_resources[] = {
 	{
+		.name  = "nand_data",
+		.start = U300_NAND_CS0_PHYS_BASE,
+		.end   = U300_NAND_CS0_PHYS_BASE + SZ_16K - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	{
+		.name  = "fsmc_regs",
 		.start = U300_NAND_IF_PHYS_BASE,
 		.end   = U300_NAND_IF_PHYS_BASE + SZ_4K - 1,
 		.flags = IORESOURCE_MEM,
@@ -949,42 +987,37 @@ const struct coh_dma_channel chan_config[U300_DMA_CHANNELS] = {
 		.priority_high = 0,
 		.dev_addr = U300_MSL_BASE + 6 * 0x40 + 0x220,
 	},
+	/*
+	 * Don't set up device address, burst count or size of src
+	 * or dst bus for this peripheral - handled by PrimeCell
+	 * DMA extension.
+	 */
 	{
 		.number = U300_DMA_MMCSD_RX_TX,
 		.name = "MMCSD RX TX",
 		.priority_high = 0,
-		.dev_addr =  U300_MMCSD_BASE + 0x080,
 		.param.config = COH901318_CX_CFG_CH_DISABLE |
 				COH901318_CX_CFG_LCR_DISABLE |
 				COH901318_CX_CFG_TC_IRQ_ENABLE |
 				COH901318_CX_CFG_BE_IRQ_ENABLE,
 		.param.ctrl_lli_chained = 0 |
 				COH901318_CX_CTRL_TC_ENABLE |
-				COH901318_CX_CTRL_BURST_COUNT_32_BYTES |
-				COH901318_CX_CTRL_SRC_BUS_SIZE_32_BITS |
-				COH901318_CX_CTRL_DST_BUS_SIZE_32_BITS |
 				COH901318_CX_CTRL_MASTER_MODE_M1RW |
 				COH901318_CX_CTRL_TCP_ENABLE |
-				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_DISABLE |
 				COH901318_CX_CTRL_HSP_ENABLE |
 				COH901318_CX_CTRL_HSS_DISABLE |
 				COH901318_CX_CTRL_DDMA_LEGACY,
 		.param.ctrl_lli = 0 |
 				COH901318_CX_CTRL_TC_ENABLE |
-				COH901318_CX_CTRL_BURST_COUNT_32_BYTES |
-				COH901318_CX_CTRL_SRC_BUS_SIZE_32_BITS |
-				COH901318_CX_CTRL_DST_BUS_SIZE_32_BITS |
 				COH901318_CX_CTRL_MASTER_MODE_M1RW |
 				COH901318_CX_CTRL_TCP_ENABLE |
-				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_DISABLE |
 				COH901318_CX_CTRL_HSP_ENABLE |
 				COH901318_CX_CTRL_HSS_DISABLE |
 				COH901318_CX_CTRL_DDMA_LEGACY,
 		.param.ctrl_lli_last = 0 |
 				COH901318_CX_CTRL_TC_ENABLE |
-				COH901318_CX_CTRL_BURST_COUNT_32_BYTES |
-				COH901318_CX_CTRL_SRC_BUS_SIZE_32_BITS |
-				COH901318_CX_CTRL_DST_BUS_SIZE_32_BITS |
 				COH901318_CX_CTRL_MASTER_MODE_M1RW |
 				COH901318_CX_CTRL_TCP_DISABLE |
 				COH901318_CX_CTRL_TC_IRQ_ENABLE |
@@ -1003,15 +1036,76 @@ const struct coh_dma_channel chan_config[U300_DMA_CHANNELS] = {
 		.name = "MSPRO RX",
 		.priority_high = 0,
 	},
+	/*
+	 * Don't set up device address, burst count or size of src
+	 * or dst bus for this peripheral - handled by PrimeCell
+	 * DMA extension.
+	 */
 	{
 		.number = U300_DMA_UART0_TX,
 		.name = "UART0 TX",
 		.priority_high = 0,
+		.param.config = COH901318_CX_CFG_CH_DISABLE |
+				COH901318_CX_CFG_LCR_DISABLE |
+				COH901318_CX_CFG_TC_IRQ_ENABLE |
+				COH901318_CX_CFG_BE_IRQ_ENABLE,
+		.param.ctrl_lli_chained = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_DISABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+		.param.ctrl_lli = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+		.param.ctrl_lli_last = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
 	},
 	{
 		.number = U300_DMA_UART0_RX,
 		.name = "UART0 RX",
 		.priority_high = 0,
+		.param.config = COH901318_CX_CFG_CH_DISABLE |
+				COH901318_CX_CFG_LCR_DISABLE |
+				COH901318_CX_CFG_TC_IRQ_ENABLE |
+				COH901318_CX_CFG_BE_IRQ_ENABLE,
+		.param.ctrl_lli_chained = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_DISABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+		.param.ctrl_lli = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+		.param.ctrl_lli_last = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
 	},
 	{
 		.number = U300_DMA_APEX_TX,
@@ -1069,7 +1163,7 @@ const struct coh_dma_channel chan_config[U300_DMA_CHANNELS] = {
 				COH901318_CX_CTRL_DST_ADDR_INC_DISABLE |
 				COH901318_CX_CTRL_MASTER_MODE_M1RW |
 				COH901318_CX_CTRL_TCP_ENABLE |
-				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_TC_IRQ_DISABLE |
 				COH901318_CX_CTRL_HSP_ENABLE |
 				COH901318_CX_CTRL_HSS_DISABLE |
 				COH901318_CX_CTRL_DDMA_LEGACY |
@@ -1241,15 +1335,77 @@ const struct coh_dma_channel chan_config[U300_DMA_CHANNELS] = {
 		.name = "XGAM PDI",
 		.priority_high = 0,
 	},
+	/*
+	 * Don't set up device address, burst count or size of src
+	 * or dst bus for this peripheral - handled by PrimeCell
+	 * DMA extension.
+	 */
 	{
 		.number = U300_DMA_SPI_TX,
 		.name = "SPI TX",
 		.priority_high = 0,
+		.param.config = COH901318_CX_CFG_CH_DISABLE |
+				COH901318_CX_CFG_LCR_DISABLE |
+				COH901318_CX_CFG_TC_IRQ_ENABLE |
+				COH901318_CX_CFG_BE_IRQ_ENABLE,
+		.param.ctrl_lli_chained = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_DISABLE |
+				COH901318_CX_CTRL_TC_IRQ_DISABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+		.param.ctrl_lli = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_DISABLE |
+				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+		.param.ctrl_lli_last = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_DISABLE |
+				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
 	},
 	{
 		.number = U300_DMA_SPI_RX,
 		.name = "SPI RX",
 		.priority_high = 0,
+		.param.config = COH901318_CX_CFG_CH_DISABLE |
+				COH901318_CX_CFG_LCR_DISABLE |
+				COH901318_CX_CFG_TC_IRQ_ENABLE |
+				COH901318_CX_CFG_BE_IRQ_ENABLE,
+		.param.ctrl_lli_chained = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_DISABLE |
+				COH901318_CX_CTRL_TC_IRQ_DISABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+		.param.ctrl_lli = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_DISABLE |
+				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+		.param.ctrl_lli_last = 0 |
+				COH901318_CX_CTRL_TC_ENABLE |
+				COH901318_CX_CTRL_MASTER_MODE_M1RW |
+				COH901318_CX_CTRL_TCP_DISABLE |
+				COH901318_CX_CTRL_TC_IRQ_ENABLE |
+				COH901318_CX_CTRL_HSP_ENABLE |
+				COH901318_CX_CTRL_HSS_DISABLE |
+				COH901318_CX_CTRL_DDMA_LEGACY,
+
 	},
 	{
 		.number = U300_DMA_GENERAL_PURPOSE_0,
@@ -1385,6 +1541,14 @@ static struct coh901318_platform coh901318_platform = {
 	.max_channels = U300_DMA_CHANNELS,
 };
 
+static struct resource pinmux_resources[] = {
+	{
+		.start = U300_SYSCON_BASE,
+		.end   = U300_SYSCON_BASE + SZ_4K - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
 static struct platform_device wdog_device = {
 	.name = "coh901327_wdog",
 	.id = -1,
@@ -1406,11 +1570,35 @@ static struct platform_device i2c1_device = {
 	.resource = i2c1_resources,
 };
 
+/*
+ * The different variants have a few different versions of the
+ * GPIO block, with different number of ports.
+ */
+static struct u300_gpio_platform u300_gpio_plat = {
+#if defined(CONFIG_MACH_U300_BS2X) || defined(CONFIG_MACH_U300_BS330)
+	.variant = U300_GPIO_COH901335,
+	.ports = 3,
+#endif
+#ifdef CONFIG_MACH_U300_BS335
+	.variant = U300_GPIO_COH901571_3_BS335,
+	.ports = 7,
+#endif
+#ifdef CONFIG_MACH_U300_BS365
+	.variant = U300_GPIO_COH901571_3_BS365,
+	.ports = 5,
+#endif
+	.gpio_base = 0,
+	.gpio_irq_base = IRQ_U300_GPIO_BASE,
+};
+
 static struct platform_device gpio_device = {
 	.name = "u300-gpio",
 	.id = -1,
 	.num_resources = ARRAY_SIZE(gpio_resources),
 	.resource = gpio_resources,
+	.dev = {
+		.platform_data = &u300_gpio_plat,
+	},
 };
 
 static struct platform_device keypad_device = {
@@ -1427,11 +1615,39 @@ static struct platform_device rtc_device = {
 	.resource = rtc_resources,
 };
 
-static struct platform_device fsmc_device = {
-	.name = "nandif",
+static struct mtd_partition u300_partitions[] = {
+	{
+		.name = "bootrecords",
+		.offset = 0,
+		.size = SZ_128K,
+	},
+	{
+		.name = "free",
+		.offset = SZ_128K,
+		.size = 8064 * SZ_1K,
+	},
+	{
+		.name = "platform",
+		.offset = 8192 * SZ_1K,
+		.size = 253952 * SZ_1K,
+	},
+};
+
+static struct fsmc_nand_platform_data nand_platform_data = {
+	.partitions = u300_partitions,
+	.nr_partitions = ARRAY_SIZE(u300_partitions),
+	.options = NAND_SKIP_BBTSCAN,
+	.width = FSMC_NAND_BW8,
+};
+
+static struct platform_device nand_device = {
+	.name = "fsmc-nand",
 	.id = -1,
-	.num_resources = ARRAY_SIZE(fsmc_resources),
 	.resource = fsmc_resources,
+	.num_resources = ARRAY_SIZE(fsmc_resources),
+	.dev = {
+		.platform_data = &nand_platform_data,
+	},
 };
 
 static struct platform_device ave_device = {
@@ -1452,6 +1668,72 @@ static struct platform_device dma_device = {
 	},
 };
 
+static struct platform_device pinmux_device = {
+	.name = "pinmux-u300",
+	.id = -1,
+	.num_resources = ARRAY_SIZE(pinmux_resources),
+	.resource = pinmux_resources,
+};
+
+/* Pinmux settings */
+static struct pinmux_map u300_pinmux_map[] = {
+	/* anonymous maps for chip power and EMIFs */
+	PINMUX_MAP_PRIMARY_SYS_HOG("POWER", "power"),
+	PINMUX_MAP_PRIMARY_SYS_HOG("EMIF0", "emif0"),
+	PINMUX_MAP_PRIMARY_SYS_HOG("EMIF1", "emif1"),
+	/* per-device maps for MMC/SD, SPI and UART */
+	PINMUX_MAP_PRIMARY("MMCSD", "mmc0", "mmci"),
+	PINMUX_MAP_PRIMARY("SPI", "spi0", "pl022"),
+	PINMUX_MAP_PRIMARY("UART0", "uart0", "uart0"),
+};
+
+struct u300_mux_hog {
+	const char *name;
+	struct device *dev;
+	struct pinmux *pmx;
+};
+
+static struct u300_mux_hog u300_mux_hogs[] = {
+	{
+		.name = "uart0",
+		.dev = &uart0_device.dev,
+	},
+	{
+		.name = "spi0",
+		.dev = &pl022_device.dev,
+	},
+	{
+		.name = "mmc0",
+		.dev = &mmcsd_device.dev,
+	},
+};
+
+static int __init u300_pinmux_fetch(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(u300_mux_hogs); i++) {
+		struct pinmux *pmx;
+		int ret;
+
+		pmx = pinmux_get(u300_mux_hogs[i].dev, NULL);
+		if (IS_ERR(pmx)) {
+			pr_err("u300: could not get pinmux hog %s\n",
+			       u300_mux_hogs[i].name);
+			continue;
+		}
+		ret = pinmux_enable(pmx);
+		if (ret) {
+			pr_err("u300: could enable pinmux hog %s\n",
+			       u300_mux_hogs[i].name);
+			continue;
+		}
+		u300_mux_hogs[i].pmx = pmx;
+	}
+	return 0;
+}
+subsys_initcall(u300_pinmux_fetch);
+
 /*
  * Notice that AMBA devices are initialized before platform devices.
  *
@@ -1463,11 +1745,11 @@ static struct platform_device *platform_devs[] __initdata = {
 	&keypad_device,
 	&rtc_device,
 	&gpio_device,
-	&fsmc_device,
+	&nand_device,
 	&wdog_device,
-	&ave_device
+	&ave_device,
+	&pinmux_device,
 };
-
 
 /*
  * Interrupts: the U300 platforms have two pl190 ARM PrimeCells connected
@@ -1477,11 +1759,19 @@ static struct platform_device *platform_devs[] __initdata = {
 void __init u300_init_irq(void)
 {
 	u32 mask[2] = {0, 0};
+	struct clk *clk;
 	int i;
 
-	for (i = 0; i < NR_IRQS; i++)
+	/* initialize clocking early, we want to clock the INTCON */
+	u300_clock_init();
+
+	/* Clock the interrupt controller */
+	clk = clk_get_sys("intcon", NULL);
+	BUG_ON(IS_ERR(clk));
+	clk_enable(clk);
+
+	for (i = 0; i < U300_VIC_IRQS_END; i++)
 		set_bit(i, (unsigned long *) &mask[0]);
-	u300_enable_intcon_clock();
 	vic_init((void __iomem *) U300_INTCON0_VBASE, 0, mask[0], mask[0]);
 	vic_init((void __iomem *) U300_INTCON1_VBASE, 32, mask[1], mask[1]);
 }
@@ -1561,13 +1851,6 @@ static void __init u300_init_check_chip(void)
 	printk(KERN_INFO "Initializing U300 system on %s baseband chip " \
 	       "(chip ID 0x%04x)\n", chipname, val);
 
-#ifdef CONFIG_MACH_U300_BS26
-	if ((val & 0xFF00U) != 0xc800) {
-		printk(KERN_ERR "Platform configured for BS25/BS26 " \
-		       "with DB3150 but %s detected, expect problems!",
-		       chipname);
-	}
-#endif
 #ifdef CONFIG_MACH_U300_BS330
 	if ((val & 0xFF00U) != 0xd800) {
 		printk(KERN_ERR "Platform configured for BS330 " \
@@ -1577,7 +1860,7 @@ static void __init u300_init_check_chip(void)
 #endif
 #ifdef CONFIG_MACH_U300_BS335
 	if ((val & 0xFF00U) != 0xf000 && (val & 0xFF00U) != 0xf100) {
-		printk(KERN_ERR "Platform configured for BS365 " \
+		printk(KERN_ERR "Platform configured for BS335 " \
 		       " with DB3350 but %s detected, expect problems!",
 		       chipname);
 	}
@@ -1612,7 +1895,7 @@ static void __init u300_assign_physmem(void)
 				     0 == res->start) {
 				res->start  = curr_start;
 				res->end   += curr_start;
-				curr_start += (res->end - res->start + 1);
+				curr_start += resource_size(res);
 
 				printk(KERN_INFO "core.c: Mapping RAM " \
 				       "%#x-%#x to device %s:%s\n",
@@ -1642,23 +1925,25 @@ void __init u300_init_devices(void)
 	u300_spi_init(&pl022_device);
 
 	/* Register the AMBA devices in the AMBA bus abstraction layer */
-	u300_clock_primecells();
 	for (i = 0; i < ARRAY_SIZE(amba_devs); i++) {
 		struct amba_device *d = amba_devs[i];
 		amba_device_register(d, &iomem_resource);
 	}
-	u300_unclock_primecells();
 
 	u300_assign_physmem();
+
+	/* Initialize pinmuxing */
+	pinmux_register_mappings(u300_pinmux_map,
+				 ARRAY_SIZE(u300_pinmux_map));
 
 	/* Register subdevices on the I2C buses */
 	u300_i2c_register_board_devices();
 
-	/* Register subdevices on the SPI bus */
-	u300_spi_register_board_devices();
-
 	/* Register the platform devices */
 	platform_add_devices(platform_devs, ARRAY_SIZE(platform_devs));
+
+	/* Register subdevices on the SPI bus */
+	u300_spi_register_board_devices();
 
 #ifndef CONFIG_MACH_U300_SEMI_IS_SHARED
 	/*

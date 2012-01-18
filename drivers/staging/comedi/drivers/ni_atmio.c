@@ -268,8 +268,9 @@ static const struct ni_board_struct ni_boards[] = {
 	 }
 };
 
-static const int ni_irqpin[] =
-    { -1, -1, -1, 0, 1, 2, -1, 3, -1, -1, 4, 5, 6, -1, -1, 7 };
+static const int ni_irqpin[] = {
+	-1, -1, -1, 0, 1, 2, -1, 3, -1, -1, 4, 5, 6, -1, -1, 7
+};
 
 #define interrupt_pin(a)	(ni_irqpin[(a)])
 
@@ -279,7 +280,10 @@ static const int ni_irqpin[] =
 
 struct ni_private {
 	struct pnp_dev *isapnp_dev;
- NI_PRIVATE_COMMON};
+	NI_PRIVATE_COMMON
+
+};
+
 #define devpriv ((struct ni_private *)dev->private)
 
 /* How we access registers */
@@ -349,7 +353,18 @@ static struct comedi_driver driver_atmio = {
 	.detach = ni_atmio_detach,
 };
 
-COMEDI_INITCLEANUP(driver_atmio);
+static int __init driver_atmio_init_module(void)
+{
+	return comedi_driver_register(&driver_atmio);
+}
+
+static void __exit driver_atmio_cleanup_module(void)
+{
+	comedi_driver_unregister(&driver_atmio);
+}
+
+module_init(driver_atmio_init_module);
+module_exit(driver_atmio_cleanup_module);
 
 #include "ni_mio_common.c"
 

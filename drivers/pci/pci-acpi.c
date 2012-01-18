@@ -46,6 +46,10 @@ static void pci_acpi_wake_dev(acpi_handle handle, u32 event, void *context)
 	struct pci_dev *pci_dev = context;
 
 	if (event == ACPI_NOTIFY_DEVICE_WAKE && pci_dev) {
+		if (pci_dev->pme_poll)
+			pci_dev->pme_poll = false;
+
+		pci_wakeup_event(pci_dev);
 		pci_check_pme_status(pci_dev);
 		pm_runtime_resume(&pci_dev->dev);
 		if (pci_dev->subordinate)
@@ -194,6 +198,8 @@ static pci_power_t acpi_pci_choose_state(struct pci_dev *pdev)
 		return PCI_D2;
 	case ACPI_STATE_D3:
 		return PCI_D3hot;
+	case ACPI_STATE_D3_COLD:
+		return PCI_D3cold;
 	}
 	return PCI_POWER_ERROR;
 }
@@ -279,7 +285,6 @@ static int acpi_dev_run_wake(struct device *phys_dev, bool enable)
 {
 	struct acpi_device *dev;
 	acpi_handle handle;
-	int error = -ENODEV;
 
 	if (!device_run_wake(phys_dev))
 		return -EINVAL;
@@ -292,24 +297,14 @@ static int acpi_dev_run_wake(struct device *phys_dev, bool enable)
 	}
 
 	if (enable) {
-		if (!dev->wakeup.run_wake_count++) {
-			acpi_enable_wakeup_device_power(dev, ACPI_STATE_S0);
-			acpi_enable_gpe(dev->wakeup.gpe_device,
-					dev->wakeup.gpe_number,
-					ACPI_GPE_TYPE_RUNTIME);
-		}
-	} else if (dev->wakeup.run_wake_count > 0) {
-		if (!--dev->wakeup.run_wake_count) {
-			acpi_disable_gpe(dev->wakeup.gpe_device,
-					 dev->wakeup.gpe_number,
-					 ACPI_GPE_TYPE_RUNTIME);
-			acpi_disable_wakeup_device_power(dev);
-		}
+		acpi_enable_wakeup_device_power(dev, ACPI_STATE_S0);
+		acpi_enable_gpe(dev->wakeup.gpe_device, dev->wakeup.gpe_number);
 	} else {
-		error = -EALREADY;
+		acpi_disable_gpe(dev->wakeup.gpe_device, dev->wakeup.gpe_number);
+		acpi_disable_wakeup_device_power(dev);
 	}
 
-	return error;
+	return 0;
 }
 
 static void acpi_pci_propagate_run_wake(struct pci_bus *bus, bool enable)
@@ -400,6 +395,7 @@ static int __init acpi_pci_init(void)
 
 	if (acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_ASPM) {
 		printk(KERN_INFO"ACPI FADT declares the system doesn't support PCIe ASPM, so disable it\n");
+		pcie_clear_aspm();
 		pcie_no_aspm();
 	}
 

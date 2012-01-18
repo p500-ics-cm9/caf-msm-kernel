@@ -264,9 +264,7 @@ extern struct sys_timer pnx4008_timer;
 
 MACHINE_START(PNX4008, "Philips PNX4008")
 	/* Maintainer: MontaVista Software Inc. */
-	.phys_io 		= 0x40090000,
-	.io_pg_offst 		= (0xf4090000 >> 18) & 0xfffc,
-	.boot_params		= 0x80000100,
+	.atag_offset		= 0x100,
 	.map_io 		= pnx4008_map_io,
 	.init_irq 		= pnx4008_init_irq,
 	.init_machine 		= pnx4008_init,

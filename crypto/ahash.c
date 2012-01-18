@@ -21,6 +21,8 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/seq_file.h>
+#include <linux/cryptouser.h>
+#include <net/netlink.h>
 
 #include "internal.h"
 
@@ -47,8 +49,11 @@ static int hash_walk_next(struct crypto_hash_walk *walk)
 	walk->data = crypto_kmap(walk->pg, 0);
 	walk->data += offset;
 
-	if (offset & alignmask)
-		nbytes = alignmask + 1 - (offset & alignmask);
+	if (offset & alignmask) {
+		unsigned int unaligned = alignmask + 1 - (offset & alignmask);
+		if (nbytes > unaligned)
+			nbytes = unaligned;
+	}
 
 	walk->entrylen -= nbytes;
 	return nbytes;
@@ -394,6 +399,24 @@ static unsigned int crypto_ahash_extsize(struct crypto_alg *alg)
 	return sizeof(struct crypto_shash *);
 }
 
+static int crypto_ahash_report(struct sk_buff *skb, struct crypto_alg *alg)
+{
+	struct crypto_report_hash rhash;
+
+	snprintf(rhash.type, CRYPTO_MAX_ALG_NAME, "%s", "ahash");
+
+	rhash.blocksize = alg->cra_blocksize;
+	rhash.digestsize = __crypto_hash_alg_common(alg)->digestsize;
+
+	NLA_PUT(skb, CRYPTOCFGA_REPORT_HASH,
+		sizeof(struct crypto_report_hash), &rhash);
+
+	return 0;
+
+nla_put_failure:
+	return -EMSGSIZE;
+}
+
 static void crypto_ahash_show(struct seq_file *m, struct crypto_alg *alg)
 	__attribute__ ((unused));
 static void crypto_ahash_show(struct seq_file *m, struct crypto_alg *alg)
@@ -412,6 +435,7 @@ const struct crypto_type crypto_ahash_type = {
 #ifdef CONFIG_PROC_FS
 	.show = crypto_ahash_show,
 #endif
+	.report = crypto_ahash_report,
 	.maskclear = ~CRYPTO_ALG_TYPE_MASK,
 	.maskset = CRYPTO_ALG_TYPE_AHASH_MASK,
 	.type = CRYPTO_ALG_TYPE_AHASH,

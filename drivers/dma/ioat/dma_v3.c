@@ -60,6 +60,7 @@
 #include <linux/gfp.h>
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
+#include <linux/prefetch.h>
 #include "registers.h"
 #include "hw.h"
 #include "dma.h"
@@ -72,10 +73,10 @@
 /* provide a lookup table for setting the source address in the base or
  * extended descriptor of an xor or pq descriptor
  */
-static const u8 xor_idx_to_desc __read_mostly = 0xd0;
-static const u8 xor_idx_to_field[] __read_mostly = { 1, 4, 5, 6, 7, 0, 1, 2 };
-static const u8 pq_idx_to_desc __read_mostly = 0xf8;
-static const u8 pq_idx_to_field[] __read_mostly = { 1, 4, 5, 0, 1, 2, 4, 5 };
+static const u8 xor_idx_to_desc = 0xe0;
+static const u8 xor_idx_to_field[] = { 1, 4, 5, 6, 7, 0, 1, 2 };
+static const u8 pq_idx_to_desc = 0xf8;
+static const u8 pq_idx_to_field[] = { 1, 4, 5, 0, 1, 2, 4, 5 };
 
 static dma_addr_t xor_get_src(struct ioat_raw_descriptor *descs[2], int idx)
 {
@@ -362,7 +363,7 @@ static void ioat3_timer_event(unsigned long data)
 			dev_err(to_dev(chan), "%s: Channel halted (%x)\n",
 				__func__, chanerr);
 			if (test_bit(IOAT_RUN, &chan->state))
-			BUG_ON(is_ioat_bug(chanerr));
+				BUG_ON(is_ioat_bug(chanerr));
 			else /* we never got off the ground */
 				return;
 		}

@@ -237,7 +237,7 @@ static void ecard_init_pgtables(struct mm_struct *mm)
 
 	memcpy(dst_pgd, src_pgd, sizeof(pgd_t) * (IO_SIZE / PGDIR_SIZE));
 
-	src_pgd = pgd_offset(mm, EASI_BASE);
+	src_pgd = pgd_offset(mm, (unsigned long)EASI_BASE);
 	dst_pgd = pgd_offset(mm, EASI_START);
 
 	memcpy(dst_pgd, src_pgd, sizeof(pgd_t) * (EASI_SIZE / PGDIR_SIZE));
@@ -443,40 +443,40 @@ static expansioncard_ops_t ecard_default_ops = {
  *
  * They are not meant to be called directly, but via enable/disable_irq.
  */
-static void ecard_irq_unmask(unsigned int irqnr)
+static void ecard_irq_unmask(struct irq_data *d)
 {
-	ecard_t *ec = slot_to_ecard(irqnr - 32);
+	ecard_t *ec = slot_to_ecard(d->irq - 32);
 
 	if (ec) {
 		if (!ec->ops)
 			ec->ops = &ecard_default_ops;
 
 		if (ec->claimed && ec->ops->irqenable)
-			ec->ops->irqenable(ec, irqnr);
+			ec->ops->irqenable(ec, d->irq);
 		else
 			printk(KERN_ERR "ecard: rejecting request to "
-				"enable IRQs for %d\n", irqnr);
+				"enable IRQs for %d\n", d->irq);
 	}
 }
 
-static void ecard_irq_mask(unsigned int irqnr)
+static void ecard_irq_mask(struct irq_data *d)
 {
-	ecard_t *ec = slot_to_ecard(irqnr - 32);
+	ecard_t *ec = slot_to_ecard(d->irq - 32);
 
 	if (ec) {
 		if (!ec->ops)
 			ec->ops = &ecard_default_ops;
 
 		if (ec->ops && ec->ops->irqdisable)
-			ec->ops->irqdisable(ec, irqnr);
+			ec->ops->irqdisable(ec, d->irq);
 	}
 }
 
 static struct irq_chip ecard_chip = {
-	.name	= "ECARD",
-	.ack	= ecard_irq_mask,
-	.mask	= ecard_irq_mask,
-	.unmask = ecard_irq_unmask,
+	.name		= "ECARD",
+	.irq_ack	= ecard_irq_mask,
+	.irq_mask	= ecard_irq_mask,
+	.irq_unmask	= ecard_irq_unmask,
 };
 
 void ecard_enablefiq(unsigned int fiqnr)
@@ -551,7 +551,7 @@ static void ecard_check_lockup(struct irq_desc *desc)
 			printk(KERN_ERR "\nInterrupt lockup detected - "
 			       "disabling all expansion card interrupts\n");
 
-			desc->chip->mask(IRQ_EXPANSIONCARD);
+			desc->irq_data.chip->irq_mask(&desc->irq_data);
 			ecard_dump_irq_state();
 		}
 	} else
@@ -574,7 +574,7 @@ ecard_irq_handler(unsigned int irq, struct irq_desc *desc)
 	ecard_t *ec;
 	int called = 0;
 
-	desc->chip->mask(irq);
+	desc->irq_data.chip->irq_mask(&desc->irq_data);
 	for (ec = cards; ec; ec = ec->next) {
 		int pending;
 
@@ -591,7 +591,7 @@ ecard_irq_handler(unsigned int irq, struct irq_desc *desc)
 			called ++;
 		}
 	}
-	desc->chip->unmask(irq);
+	desc->irq_data.chip->irq_unmask(&desc->irq_data);
 
 	if (called == 0)
 		ecard_check_lockup(desc);
@@ -674,44 +674,37 @@ static int __init ecard_probeirqhw(void)
 #define ecard_probeirqhw() (0)
 #endif
 
-#ifndef IO_EC_MEMC8_BASE
-#define IO_EC_MEMC8_BASE 0
-#endif
-
-static unsigned int __ecard_address(ecard_t *ec, card_type_t type, card_speed_t speed)
+static void __iomem *__ecard_address(ecard_t *ec, card_type_t type, card_speed_t speed)
 {
-	unsigned long address = 0;
+	void __iomem *address = NULL;
 	int slot = ec->slot_no;
 
 	if (ec->slot_no == 8)
-		return IO_EC_MEMC8_BASE;
+		return ECARD_MEMC8_BASE;
 
 	ectcr &= ~(1 << slot);
 
 	switch (type) {
 	case ECARD_MEMC:
 		if (slot < 4)
-			address = IO_EC_MEMC_BASE + (slot << 12);
+			address = ECARD_MEMC_BASE + (slot << 14);
 		break;
 
 	case ECARD_IOC:
 		if (slot < 4)
-			address = IO_EC_IOC_BASE + (slot << 12);
-#ifdef IO_EC_IOC4_BASE
+			address = ECARD_IOC_BASE + (slot << 14);
 		else
-			address = IO_EC_IOC4_BASE + ((slot - 4) << 12);
-#endif
+			address = ECARD_IOC4_BASE + ((slot - 4) << 14);
 		if (address)
-			address +=  speed << 17;
+			address += speed << 19;
 		break;
 
-#ifdef IO_EC_EASI_BASE
 	case ECARD_EASI:
-		address = IO_EC_EASI_BASE + (slot << 22);
+		address = ECARD_EASI_BASE + (slot << 24);
 		if (speed == ECARD_FAST)
 			ectcr |= 1 << slot;
 		break;
-#endif
+
 	default:
 		break;
 	}
@@ -990,6 +983,7 @@ ecard_probe(int slot, card_type_t type)
 	ecard_t **ecp;
 	ecard_t *ec;
 	struct ex_ecid cid;
+	void __iomem *addr;
 	int i, rc;
 
 	ec = ecard_alloc_card(type, slot);
@@ -999,7 +993,7 @@ ecard_probe(int slot, card_type_t type)
 	}
 
 	rc = -ENODEV;
-	if ((ec->podaddr = __ecard_address(ec, type, ECARD_SYNC)) == 0)
+	if ((addr = __ecard_address(ec, type, ECARD_SYNC)) == NULL)
 		goto nodev;
 
 	cid.r_zero = 1;
@@ -1019,7 +1013,7 @@ ecard_probe(int slot, card_type_t type)
 	ec->cid.fiqmask = cid.r_fiqmask;
 	ec->cid.fiqoff  = ecard_gets24(cid.r_fiqoff);
 	ec->fiqaddr	=
-	ec->irqaddr	= (void __iomem *)ioaddr(ec->podaddr);
+	ec->irqaddr	= addr;
 
 	if (ec->cid.is) {
 		ec->irqmask = ec->cid.irqmask;
@@ -1043,15 +1037,13 @@ ecard_probe(int slot, card_type_t type)
 	 */
 	if (slot < 8) {
 		ec->irq = 32 + slot;
-		set_irq_chip(ec->irq, &ecard_chip);
-		set_irq_handler(ec->irq, handle_level_irq);
+		irq_set_chip_and_handler(ec->irq, &ecard_chip,
+					 handle_level_irq);
 		set_irq_flags(ec->irq, IRQF_VALID);
 	}
 
-#ifdef IO_EC_MEMC8_BASE
 	if (slot == 8)
 		ec->irq = 11;
-#endif
 #ifdef CONFIG_ARCH_RPC
 	/* On RiscPC, only first two slots have DMA capability */
 	if (slot < 2)
@@ -1097,13 +1089,11 @@ static int __init ecard_init(void)
 			ecard_probe(slot, ECARD_IOC);
 	}
 
-#ifdef IO_EC_MEMC8_BASE
 	ecard_probe(8, ECARD_IOC);
-#endif
 
 	irqhw = ecard_probeirqhw();
 
-	set_irq_chained_handler(IRQ_EXPANSIONCARD,
+	irq_set_chained_handler(IRQ_EXPANSIONCARD,
 				irqhw ? ecard_irqexp_handler : ecard_irq_handler);
 
 	ecard_proc_init();

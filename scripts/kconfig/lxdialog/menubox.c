@@ -410,8 +410,8 @@ do_resize:
 				return 7;
 			case 'z':
 				return 8;
-		case '\n':
-			return button;
+			case '\n':
+				return button;
 			}
 			return 0;
 		case 'e':

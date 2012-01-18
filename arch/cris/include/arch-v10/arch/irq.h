@@ -98,11 +98,11 @@ void set_break_vector(int n, irqvectptr addr);
 
 #define BLOCK_IRQ(mask,nr) \
   "move.d " #mask ",$r0\n\t" \
-  "move.d $r0,[0xb00000d8]\n\t" 
-  
+  "move.d $r0,[0xb00000d8]\n\t"
+
 #define UNBLOCK_IRQ(mask) \
   "move.d " #mask ",$r0\n\t" \
-  "move.d $r0,[0xb00000dc]\n\t" 
+  "move.d $r0,[0xb00000dc]\n\t"
 
 #define IRQ_NAME2(nr) nr##_interrupt(void)
 #define IRQ_NAME(nr) IRQ_NAME2(IRQ##nr)

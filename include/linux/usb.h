@@ -20,6 +20,7 @@
 #include <linux/completion.h>	/* for struct completion */
 #include <linux/sched.h>	/* for current && schedule_timeout */
 #include <linux/mutex.h>	/* for struct mutex */
+#include <linux/pm_runtime.h>	/* for runtime PM */
 
 struct usb_device;
 struct usb_driver;
@@ -127,6 +128,8 @@ enum usb_interface_condition {
  *      queued reset so that usb_cancel_queued_reset() doesn't try to
  *      remove from the workqueue when running inside the worker
  *      thread. See __usb_queue_reset_device().
+ * @resetting_device: USB core reset the device, so use alt setting 0 as
+ *	current; needs bandwidth alloc after reset.
  *
  * USB device drivers attach to interfaces on a physical device.  Each
  * interface encapsulates a single high level function, such as feeding
@@ -289,6 +292,16 @@ struct usb_host_config {
 	int extralen;
 };
 
+/* USB2.0 and USB3.0 device BOS descriptor set */
+struct usb_host_bos {
+	struct usb_bos_descriptor	*desc;
+
+	/* wireless cap descriptor is handled by wusb */
+	struct usb_ext_cap_descriptor	*ext_cap;
+	struct usb_ss_cap_descriptor	*ss_cap;
+	struct usb_ss_container_id_descriptor	*ss_id;
+};
+
 int __usb_get_extra_descriptor(char *buffer, unsigned size,
 	unsigned char type, void **ptr);
 #define usb_get_extra_descriptor(ifpoint, type, ptr) \
@@ -311,6 +324,10 @@ struct usb_bus {
 	int busnum;			/* Bus number (in order of reg) */
 	const char *bus_name;		/* stable id (PCI slot_name etc) */
 	u8 uses_dma;			/* Does the host controller use DMA? */
+	u8 uses_pio_for_control;	/*
+					 * Does the host controller use PIO
+					 * for control transfers?
+					 */
 	u8 otg_port;			/* 0, or number of OTG/HNP port */
 	unsigned is_b_host:1;		/* true during some HNP roleswitches */
 	unsigned b_hnp_enable:1;	/* OTG: did A-Host enable HNP? */
@@ -376,6 +393,7 @@ struct usb_tt;
  * @ep0: endpoint 0 data (default control pipe)
  * @dev: generic device interface
  * @descriptor: USB device descriptor
+ * @bos: USB device BOS descriptor set
  * @config: all of the device's configs
  * @actconfig: the active configuration
  * @ep_in: array of IN endpoints
@@ -394,6 +412,9 @@ struct usb_tt;
  *	FIXME -- complete doc
  * @authenticated: Crypto authentication passed
  * @wusb: device is Wireless USB
+ * @lpm_capable: device supports LPM
+ * @usb2_hw_lpm_capable: device can perform USB2 hardware LPM
+ * @usb2_hw_lpm_enabled: USB2 hardware LPM enabled
  * @string_langid: language ID for strings
  * @product: iProduct string, if present (static)
  * @manufacturer: iManufacturer string, if present (static)
@@ -407,8 +428,6 @@ struct usb_tt;
  * @quirks: quirks of the whole device
  * @urbnum: number of URBs submitted for the whole device
  * @active_duration: total time device is not suspended
- * @last_busy: time of last use
- * @autosuspend_delay: in jiffies
  * @connect_time: time device was first connected
  * @do_remote_wakeup:  remote wakeup should be enabled
  * @reset_resume: needs reset instead of resume
@@ -439,6 +458,7 @@ struct usb_device {
 	struct device dev;
 
 	struct usb_device_descriptor descriptor;
+	struct usb_host_bos *bos;
 	struct usb_host_config *config;
 
 	struct usb_host_config *actconfig;
@@ -457,6 +477,9 @@ struct usb_device {
 	unsigned authorized:1;
 	unsigned authenticated:1;
 	unsigned wusb:1;
+	unsigned lpm_capable:1;
+	unsigned usb2_hw_lpm_capable:1;
+	unsigned usb2_hw_lpm_enabled:1;
 	int string_langid;
 
 	/* static strings from the device */
@@ -481,8 +504,6 @@ struct usb_device {
 	unsigned long active_duration;
 
 #ifdef CONFIG_PM
-	unsigned long last_busy;
-	int autosuspend_delay;
 	unsigned long connect_time;
 
 	unsigned do_remote_wakeup:1;
@@ -527,7 +548,7 @@ extern void usb_autopm_put_interface_no_suspend(struct usb_interface *intf);
 
 static inline void usb_mark_last_busy(struct usb_device *udev)
 {
-	udev->last_busy = jiffies;
+	pm_runtime_mark_last_busy(&udev->dev);
 }
 
 #else
@@ -622,7 +643,7 @@ extern struct usb_host_interface *usb_find_alt_setting(
  * USB hubs.  That makes it stay the same until systems are physically
  * reconfigured, by re-cabling a tree of USB devices or by moving USB host
  * controllers.  Adding and removing devices, including virtual root hubs
- * in host controller driver modules, does not change these path identifers;
+ * in host controller driver modules, does not change these path identifiers;
  * neither does rebooting or re-enumerating.  These are more useful identifiers
  * than changeable ("unstable") ones like bus numbers or device addresses.
  *
@@ -792,12 +813,12 @@ struct usbdrv_wrap {
  *	usb_set_intfdata() to associate driver-specific data with the
  *	interface.  It may also use usb_set_interface() to specify the
  *	appropriate altsetting.  If unwilling to manage the interface,
- *	return -ENODEV, if genuine IO errors occured, an appropriate
+ *	return -ENODEV, if genuine IO errors occurred, an appropriate
  *	negative errno value.
  * @disconnect: Called when the interface is no longer accessible, usually
  *	because its device has been (or is being) disconnected or the
  *	driver module is being unloaded.
- * @ioctl: Used for drivers that want to talk to userspace through
+ * @unlocked_ioctl: Used for drivers that want to talk to userspace through
  *	the "usbfs" filesystem.  This lets devices provide ways to
  *	expose information to user space regardless of where they
  *	do (or don't) show up otherwise in the filesystem.
@@ -805,8 +826,10 @@ struct usbdrv_wrap {
  * @resume: Called when the device is being resumed by the system.
  * @reset_resume: Called when the suspended device has been reset instead
  *	of being resumed.
- * @pre_reset: Called by usb_reset_device() when the device
- *	is about to be reset.
+ * @pre_reset: Called by usb_reset_device() when the device is about to be
+ *	reset.  This routine must not return until the driver has no active
+ *	URBs for the device, and no more URBs may be submitted until the
+ *	post_reset method is called.
  * @post_reset: Called by usb_reset_device() after the device
  *	has been reset
  * @id_table: USB drivers use ID table to support hotplugging.
@@ -845,7 +868,7 @@ struct usb_driver {
 
 	void (*disconnect) (struct usb_interface *intf);
 
-	int (*ioctl) (struct usb_interface *intf, unsigned int code,
+	int (*unlocked_ioctl) (struct usb_interface *intf, unsigned int code,
 			void *buf);
 
 	int (*suspend) (struct usb_interface *intf, pm_message_t message);
@@ -975,6 +998,7 @@ extern int usb_disabled(void);
 #define URB_SETUP_MAP_SINGLE	0x00100000	/* Setup packet DMA mapped */
 #define URB_SETUP_MAP_LOCAL	0x00200000	/* HCD-local setup packet */
 #define URB_DMA_SG_COMBINED	0x00400000	/* S-G entries were combined */
+#define URB_ALIGNED_TEMP_BUFFER	0x00800000	/* Temp buffer was alloc'd */
 
 struct usb_iso_packet_descriptor {
 	unsigned int offset;
@@ -1017,6 +1041,7 @@ typedef void (*usb_complete_t)(struct urb *);
  *	is a different endpoint (and pipe) from "out" endpoint two.
  *	The current configuration controls the existence, type, and
  *	maximum packet size of any given endpoint.
+ * @stream_id: the endpoint's stream ID for bulk streams
  * @dev: Identifies the USB device to perform the request.
  * @status: This is read in non-iso completion functions to get the
  *	status of the particular request.  ISO requests only use it
@@ -1569,7 +1594,7 @@ usb_maxpacket(struct usb_device *udev, int pipe, int is_out)
 		return 0;
 
 	/* NOTE:  only 0x07ff bits are for packet size... */
-	return le16_to_cpu(ep->desc.wMaxPacketSize);
+	return usb_endpoint_maxp(&ep->desc);
 }
 
 /* ----------------------------------------------------------------------- */

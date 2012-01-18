@@ -167,9 +167,37 @@ static void pmdh_clk_disable()
 
 static void pmdh_clk_enable()
 {
-	mutex_lock(&pmdh_clk_lock);
-	if (pmdh_clk_status == 1) {
-		mutex_unlock(&pmdh_clk_lock);
+	uint32_t rev_data_count;
+	uint32_t rev_crc_err_count;
+	struct reg_read_info *ri;
+	size_t prev_offset;
+	uint16_t length;
+
+	union mddi_rev *crev = mddi->rev_data + mddi->rev_data_curr;
+
+	/* clear the interrupt */
+	mddi_writel(MDDI_INT_REV_DATA_AVAIL, INT);
+	rev_data_count = mddi_readl(REV_PKT_CNT);
+	rev_crc_err_count = mddi_readl(REV_CRC_ERR);
+	if (rev_data_count > 1)
+		printk(KERN_INFO "rev_data_count %d\n", rev_data_count);
+
+	if (rev_crc_err_count) {
+		printk(KERN_INFO "rev_crc_err_count %d, INT %x\n",
+		       rev_crc_err_count,  mddi_readl(INT));
+		ri = mddi->reg_read;
+		if (ri == 0) {
+			printk(KERN_INFO "rev: got crc error without pending "
+			       "read\n");
+		} else {
+			mddi->reg_read = NULL;
+			ri->status = -EIO;
+			ri->result = -1;
+			complete(&ri->done);
+		}
+	}
+
+	if (rev_data_count == 0)
 		return;
 	}
 
@@ -323,8 +351,14 @@ static int mddi_probe(struct platform_device *pdev)
 	if (!mfd)
 		return -ENODEV;
 
-	if (mfd->key != MFD_KEY)
-		return -EINVAL;
+static void mddi_wait_interrupt(struct mddi_info *mddi, uint32_t intmask)
+{
+	if (mddi_wait_interrupt_timeout(mddi, intmask, HZ/10) == 0)
+		printk(KERN_INFO "mddi_wait_interrupt %d, timeout "
+		       "waiting for %x, INT = %x, STAT = %x gotint = %x\n",
+		       current->pid, intmask, mddi_readl(INT), mddi_readl(STAT),
+		       mddi->got_int);
+}
 
 	if (pdev_list_cnt >= MSM_FB_MAX_DEV_LIST)
 		return -ENOMEM;
@@ -443,9 +477,12 @@ void mddi_disable(int lock)
 	if (mddi_power_locked)
 		return;
 
-	if (lock)
-		mddi_power_locked = 1;
-	pmdh_clk_enable();
+		if (mddi->flags & FLAG_HAVE_CAPS)
+			break;
+		printk(KERN_INFO "mddi_init, timeout waiting for caps\n");
+	}
+	return mddi->flags & FLAG_HAVE_CAPS;
+}
 
 	mddi_pad_ctrl = mddi_host_reg_in(PAD_CTL);
 	mddi_host_reg_out(PAD_CTL, 0x0);
@@ -507,16 +544,33 @@ static int mddi_resume(struct platform_device *pdev)
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void mddi_early_suspend(struct early_suspend *h)
+static int __devinit mddi_probe(struct platform_device *pdev)
 {
 	pm_message_t state;
 	struct msm_fb_data_type *mfd = container_of(h, struct msm_fb_data_type,
 							mddi_early_suspend);
 
-	state.event = PM_EVENT_SUSPEND;
-	mddi_suspend(mfd->pdev, state);
-}
+	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!resource) {
+		printk(KERN_ERR "mddi: no associated mem resource!\n");
+		return -ENOMEM;
+	}
+	mddi->base = ioremap(resource->start, resource_size(resource));
+	if (!mddi->base) {
+		printk(KERN_ERR "mddi: failed to remap base!\n");
+		ret = -EINVAL;
+		goto error_ioremap;
+	}
+	resource = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
+	if (!resource) {
+		printk(KERN_ERR "mddi: no associated irq resource!\n");
+		ret = -EINVAL;
+		goto error_get_irq_resource;
+	}
+	mddi->irq = resource->start;
+	printk(KERN_INFO "mddi: init() base=0x%p irq=%d\n", mddi->base,
+	       mddi->irq);
+	mddi->power_client = pdata->power_client;
 
 static void mddi_early_resume(struct early_suspend *h)
 {
@@ -541,8 +595,14 @@ static int mddi_remove(struct platform_device *pdev)
 
 	iounmap(msm_pmdh_base);
 
-	return 0;
-}
+	mddi->int_enable = 0;
+	mddi_writel(mddi->int_enable, INTEN);
+	ret = request_irq(mddi->irq, mddi_isr, 0, "mddi",
+			  &mddi->client_data);
+	if (ret) {
+		printk(KERN_ERR "mddi: failed to request enable irq!\n");
+		goto error_request_irq;
+	}
 
 static int mddi_register_driver(void)
 {

@@ -27,6 +27,7 @@
 #include <linux/clk.h>
 #include <linux/mutex.h>
 
+#include <mach/dma.h>
 #include <mach/hardware.h>
 #include <mach/ipu.h>
 #include <mach/mx3fb.h>
@@ -380,6 +381,9 @@ static void sdc_disable_channel(struct mx3fb_info *mx3_fbi)
 	struct mx3fb_data *mx3fb = mx3_fbi->mx3fb;
 	uint32_t enabled;
 	unsigned long flags;
+
+	if (mx3_fbi->txd == NULL)
+		return;
 
 	spin_lock_irqsave(&mx3fb->lock, flags);
 
@@ -985,8 +989,18 @@ static void __blank(int blank, struct fb_info *fbi)
 {
 	struct mx3fb_info *mx3_fbi = fbi->par;
 	struct mx3fb_data *mx3fb = mx3_fbi->mx3fb;
+	int was_blank = mx3_fbi->blank;
 
 	mx3_fbi->blank = blank;
+
+	/* Attention!
+	 * Do not call sdc_disable_channel() for a channel that is disabled
+	 * already! This will result in a kernel NULL pointer dereference
+	 * (mx3_fbi->txd is NULL). Hide the fact, that all blank modes are
+	 * handled equally by this driver.
+	 */
+	if (blank > FB_BLANK_UNBLANK && was_blank > FB_BLANK_UNBLANK)
+		return;
 
 	switch (blank) {
 	case FB_BLANK_POWERDOWN:
@@ -1061,15 +1075,15 @@ static int mx3fb_pan_display(struct fb_var_screeninfo *var,
 	y_bottom = var->yoffset;
 
 	if (!(var->vmode & FB_VMODE_YWRAP))
-		y_bottom += var->yres;
+		y_bottom += fbi->var.yres;
 
 	if (y_bottom > fbi->var.yres_virtual)
 		return -EINVAL;
 
 	mutex_lock(&mx3_fbi->mutex);
 
-	offset = (var->yoffset * var->xres_virtual + var->xoffset) *
-		(var->bits_per_pixel / 8);
+	offset = var->yoffset * fbi->fix.line_length
+	       + var->xoffset * (fbi->var.bits_per_pixel / 8);
 	base = fbi->fix.smem_start + offset;
 
 	dev_dbg(fbi->device, "Updating SDC BG buf %d address=0x%08lX\n",
@@ -1176,9 +1190,9 @@ static int mx3fb_suspend(struct platform_device *pdev, pm_message_t state)
 	struct mx3fb_data *mx3fb = platform_get_drvdata(pdev);
 	struct mx3fb_info *mx3_fbi = mx3fb->fbi->par;
 
-	acquire_console_sem();
+	console_lock();
 	fb_set_suspend(mx3fb->fbi, 1);
-	release_console_sem();
+	console_unlock();
 
 	if (mx3_fbi->blank == FB_BLANK_UNBLANK) {
 		sdc_disable_channel(mx3_fbi);
@@ -1201,9 +1215,9 @@ static int mx3fb_resume(struct platform_device *pdev)
 		sdc_set_brightness(mx3fb, mx3fb->backlight_level);
 	}
 
-	acquire_console_sem();
+	console_lock();
 	fb_set_suspend(mx3fb->fbi, 0);
-	release_console_sem();
+	console_unlock();
 
 	return 0;
 }
@@ -1420,6 +1434,9 @@ static bool chan_filter(struct dma_chan *chan, void *arg)
 	struct device *dev;
 	struct mx3fb_platform_data *mx3fb_pdata;
 
+	if (!imx_dma_is_ipu(chan))
+		return false;
+
 	if (!rq)
 		return false;
 
@@ -1470,8 +1487,7 @@ static int mx3fb_probe(struct platform_device *pdev)
 		goto eremap;
 	}
 
-	pr_debug("Remapped %x to %x at %p\n", sdc_reg->start, sdc_reg->end,
-		 mx3fb->reg_base);
+	pr_debug("Remapped %pR at %p\n", sdc_reg, mx3fb->reg_base);
 
 	/* IDMAC interface */
 	dmaengine_get();

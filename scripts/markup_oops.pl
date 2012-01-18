@@ -194,7 +194,7 @@ if ($target eq "0") {
 if ($module ne "") {
 	if ($modulefile eq "") {
 		$modulefile = `modinfo -F filename $module`;
-	chomp($modulefile);
+		chomp($modulefile);
 	}
 	$filename = $modulefile;
 	if ($filename eq "") {

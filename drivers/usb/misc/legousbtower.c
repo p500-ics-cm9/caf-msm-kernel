@@ -409,7 +409,7 @@ static int tower_open (struct inode *inode, struct file *file)
 			  dev->udev,
 			  usb_rcvintpipe(dev->udev, dev->interrupt_in_endpoint->bEndpointAddress),
 			  dev->interrupt_in_buffer,
-			  le16_to_cpu(dev->interrupt_in_endpoint->wMaxPacketSize),
+			  usb_endpoint_maxp(dev->interrupt_in_endpoint),
 			  tower_interrupt_in_callback,
 			  dev,
 			  dev->interrupt_in_interval);
@@ -448,7 +448,7 @@ static int tower_release (struct inode *inode, struct file *file)
 
 	dbg(2, "%s: enter", __func__);
 
-	dev = (struct lego_usb_tower *)file->private_data;
+	dev = file->private_data;
 
 	if (dev == NULL) {
 		dbg(1, "%s: object is NULL", __func__);
@@ -597,7 +597,7 @@ static ssize_t tower_read (struct file *file, char __user *buffer, size_t count,
 
 	dbg(2, "%s: enter, count = %Zd", __func__, count);
 
-	dev = (struct lego_usb_tower *)file->private_data;
+	dev = file->private_data;
 
 	/* lock this object */
 	if (mutex_lock_interruptible(&dev->lock)) {
@@ -686,7 +686,7 @@ static ssize_t tower_write (struct file *file, const char __user *buffer, size_t
 
 	dbg(2, "%s: enter, count = %Zd", __func__, count);
 
-	dev = (struct lego_usb_tower *)file->private_data;
+	dev = file->private_data;
 
 	/* lock this object */
 	if (mutex_lock_interruptible(&dev->lock)) {
@@ -928,7 +928,7 @@ static int tower_probe (struct usb_interface *interface, const struct usb_device
 		err("Couldn't allocate read_buffer");
 		goto error;
 	}
-	dev->interrupt_in_buffer = kmalloc (le16_to_cpu(dev->interrupt_in_endpoint->wMaxPacketSize), GFP_KERNEL);
+	dev->interrupt_in_buffer = kmalloc (usb_endpoint_maxp(dev->interrupt_in_endpoint), GFP_KERNEL);
 	if (!dev->interrupt_in_buffer) {
 		err("Couldn't allocate interrupt_in_buffer");
 		goto error;

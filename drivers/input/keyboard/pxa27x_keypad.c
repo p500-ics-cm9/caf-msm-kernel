@@ -32,7 +32,7 @@
 #include <asm/mach/map.h>
 
 #include <mach/hardware.h>
-#include <mach/pxa27x_keypad.h>
+#include <plat/pxa27x_keypad.h>
 /*
  * Keypad Controller registers
  */
@@ -330,10 +330,20 @@ static void pxa27x_keypad_scan_direct(struct pxa27x_keypad *keypad)
 	keypad->direct_key_state = new_state;
 }
 
+static void clear_wakeup_event(struct pxa27x_keypad *keypad)
+{
+	struct pxa27x_keypad_platform_data *pdata = keypad->pdata;
+
+	if (pdata->clear_wakeup_event)
+		(pdata->clear_wakeup_event)();
+}
+
 static irqreturn_t pxa27x_keypad_irq_handler(int irq, void *dev_id)
 {
 	struct pxa27x_keypad *keypad = dev_id;
 	unsigned long kpc = keypad_readl(KPC);
+
+	clear_wakeup_event(keypad);
 
 	if (kpc & KPC_DI)
 		pxa27x_keypad_scan_direct(keypad);
@@ -525,7 +535,7 @@ static int __devinit pxa27x_keypad_probe(struct platform_device *pdev)
 		input_dev->evbit[0] |= BIT_MASK(EV_REL);
 	}
 
-	error = request_irq(irq, pxa27x_keypad_irq_handler, IRQF_DISABLED,
+	error = request_irq(irq, pxa27x_keypad_irq_handler, 0,
 			    pdev->name, keypad);
 	if (error) {
 		dev_err(&pdev->dev, "failed to request IRQ\n");
@@ -567,8 +577,6 @@ static int __devexit pxa27x_keypad_remove(struct platform_device *pdev)
 	clk_put(keypad->clk);
 
 	input_unregister_device(keypad->input_dev);
-	input_free_device(keypad->input_dev);
-
 	iounmap(keypad->mmio_base);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);

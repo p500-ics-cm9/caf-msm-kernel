@@ -29,7 +29,7 @@ static int ps3_ehci_hc_reset(struct usb_hcd *hcd)
 	ehci->big_endian_mmio = 1;
 
 	ehci->caps = hcd->regs;
-	ehci->regs = hcd->regs + HC_LENGTH(ehci_readl(ehci,
+	ehci->regs = hcd->regs + HC_LENGTH(ehci, ehci_readl(ehci,
 		&ehci->caps->hc_capbase));
 
 	dbg_hcs_params(ehci, "reset");
@@ -167,7 +167,7 @@ static int __devinit ps3_ehci_probe(struct ps3_system_bus_device *dev)
 
 	ps3_system_bus_set_drvdata(dev, hcd);
 
-	result = usb_add_hcd(hcd, virq, IRQF_DISABLED);
+	result = usb_add_hcd(hcd, virq, 0);
 
 	if (result) {
 		dev_dbg(&dev->core, "%s:%d: usb_add_hcd failed (%d)\n",

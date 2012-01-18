@@ -53,9 +53,7 @@ struct gameport {
 #define to_gameport_port(d)	container_of(d, struct gameport, dev)
 
 struct gameport_driver {
-
-	void *private;
-	char *description;
+	const char *description;
 
 	int (*connect)(struct gameport *, struct gameport_driver *drv);
 	int (*reconnect)(struct gameport *);
@@ -80,8 +78,8 @@ static inline void gameport_register_port(struct gameport *gameport)
 
 void gameport_unregister_port(struct gameport *gameport);
 
-void gameport_set_phys(struct gameport *gameport, const char *fmt, ...)
-	__attribute__ ((format (printf, 2, 3)));
+__printf(2, 3)
+void gameport_set_phys(struct gameport *gameport, const char *fmt, ...);
 
 #else
 
@@ -95,8 +93,8 @@ static inline void gameport_unregister_port(struct gameport *gameport)
 	return;
 }
 
-static inline void gameport_set_phys(struct gameport *gameport,
-				     const char *fmt, ...)
+static inline __printf(2, 3)
+void gameport_set_phys(struct gameport *gameport, const char *fmt, ...)
 {
 	return;
 }

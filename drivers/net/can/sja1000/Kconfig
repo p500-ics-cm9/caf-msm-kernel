@@ -29,6 +29,13 @@ config CAN_SJA1000_OF_PLATFORM
 	  OpenFirmware bindings, e.g. if you have a PowerPC based system
 	  you may want to enable this option.
 
+config CAN_EMS_PCMCIA
+	tristate "EMS CPC-CARD Card"
+	depends on PCMCIA
+	---help---
+	  This driver is for the one or two channel CPC-CARD cards from
+	  EMS Dr. Thomas Wuensche (http://www.ems-wuensche.de).
+
 config CAN_EMS_PCI
 	tristate "EMS CPC-PCI, CPC-PCIe and CPC-104P Card"
 	depends on PCI
@@ -36,6 +43,13 @@ config CAN_EMS_PCI
 	  This driver is for the one, two or four channel CPC-PCI,
 	  CPC-PCIe and CPC-104P cards from EMS Dr. Thomas Wuensche
 	  (http://www.ems-wuensche.de).
+
+config CAN_PEAK_PCI
+	tristate "PEAK PCAN PCI/PCIe Cards"
+	depends on PCI
+	---help---
+	  This driver is for the PCAN PCI/PCIe cards (1, 2, 3 or 4 channels)
+	  from PEAK Systems (http://www.peak-system.com).
 
 config CAN_KVASER_PCI
 	tristate "Kvaser PCIcanx and Kvaser PCIcan PCI Cards"
@@ -58,4 +72,16 @@ config CAN_PLX_PCI
 	   - esd CAN-PCIe/2000
 	   - Marathon CAN-bus-PCI card (http://www.marathon.ru/)
 	   - TEWS TECHNOLOGIES TPMC810 card (http://www.tews.com/)
+
+config CAN_TSCAN1
+	tristate "TS-CAN1 PC104 boards"
+	depends on ISA
+	help
+	This driver is for Technologic Systems' TSCAN-1 PC104 boards.
+	http://www.embeddedarm.com/products/board-detail.php?product=TS-CAN1
+	The driver supports multiple boards and automatically configures them:
+	PLD IO base addresses are read from jumpers JP1 and JP2,
+	IRQ numbers are read from jumpers JP4 and JP5,
+	SJA1000 IO base addresses are chosen heuristically (first that works).
+
 endif

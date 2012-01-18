@@ -11,7 +11,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
 */
-
+#include <linux/gpio.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -31,7 +31,6 @@
 
 #include <linux/delay.h>
 
-#include <asm/gpio.h>
 #include <mach/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
@@ -1202,52 +1201,8 @@ static struct map_desc sapphire_io_desc[] __initdata = {
 	}
 };
 
-
-unsigned int sapphire_get_hwid(void)
-{
-	return hwid;
-}
-
-unsigned int sapphire_get_skuid(void)
-{
-	return skuid;
-}
-
-unsigned sapphire_engineerid(void)
-{
-	return engineerid;
-}
-
-int sapphire_is_5M_camera(void)
-{
-	int ret = 0;
-	if (sapphire_get_skuid() == 0x1FF00 && !(sapphire_engineerid() & 0x02))
-		ret = 1;
-	else if (sapphire_get_skuid() == 0x20100 && !(sapphire_engineerid() & 0x02))
-		ret = 1;
-	return ret;
-}
-
-/* it can support 3M and 5M sensor */
-unsigned int is_12pin_camera(void)
-{
-	unsigned int ret = 0;
-
-	if (sapphire_get_skuid() == 0x1FF00 || sapphire_get_skuid() == 0x20100)
-		ret = 1;
-	else
-		ret = 0;
-	return ret;
-}
-
-int sapphire_get_smi_size(void)
-{
-	printk(KERN_DEBUG "get_smi_size=%d\n", smi_sz);
-	return smi_sz;
-}
-
-static void __init sapphire_fixup(struct machine_desc *desc, struct tag *tags,
-				  char **cmdline, struct meminfo *mi)
+static void __init sapphire_fixup(struct tag *tags, char **cmdline,
+				  struct meminfo *mi)
 {
 	smi_sz = parse_tag_smi((const struct tag *)tags);
 	printk("sapphire_fixup:smisize=%d\n", smi_sz);
@@ -1296,11 +1251,7 @@ static void __init sapphire_map_io(void)
 
 MACHINE_START(SAPPHIRE, "sapphire")
 /* Maintainer: Brian Swetland <swetland@google.com> */
-#ifdef CONFIG_MSM_DEBUG_UART
-	.phys_io        = MSM_DEBUG_UART_PHYS,
-	.io_pg_offst    = ((MSM_DEBUG_UART_BASE) >> 18) & 0xfffc,
-#endif
-	.boot_params    = 0x02000100,
+	.atag_offset    = 0x100,
 	.fixup          = sapphire_fixup,
 	.map_io         = sapphire_map_io,
 	.init_irq       = sapphire_init_irq,

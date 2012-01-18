@@ -34,6 +34,7 @@
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/workqueue.h>
+#include <linux/prefetch.h>
 #include <linux/i7300_idle.h>
 #include "dma.h"
 #include "dma_v2.h"
@@ -288,7 +289,7 @@ void ioat2_timer_event(unsigned long data)
 			dev_err(to_dev(chan), "%s: Channel halted (%x)\n",
 				__func__, chanerr);
 			if (test_bit(IOAT_RUN, &chan->state))
-			BUG_ON(is_ioat_bug(chanerr));
+				BUG_ON(is_ioat_bug(chanerr));
 			else /* we never got off the ground */
 				return;
 		}
@@ -507,6 +508,7 @@ int ioat2_alloc_chan_resources(struct dma_chan *c)
 	struct ioat_ring_ent **ring;
 	u64 status;
 	int order;
+	int i = 0;
 
 	/* have we already been set up? */
 	if (ioat->ring)
@@ -547,11 +549,14 @@ int ioat2_alloc_chan_resources(struct dma_chan *c)
 	ioat2_start_null_desc(ioat);
 
 	/* check that we got off the ground */
-	udelay(5);
-	status = ioat_chansts(chan);
+	do {
+		udelay(1);
+		status = ioat_chansts(chan);
+	} while (i++ < 20 && !is_ioat_active(status) && !is_ioat_idle(status));
+
 	if (is_ioat_active(status) || is_ioat_idle(status)) {
 		set_bit(IOAT_RUN, &chan->state);
-	return 1 << ioat->alloc_order;
+		return 1 << ioat->alloc_order;
 	} else {
 		u32 chanerr = readl(chan->reg_base + IOAT_CHANERR_OFFSET);
 
@@ -879,7 +884,7 @@ int __devinit ioat2_dma_probe(struct ioatdma_device *device, int dca)
 	dma->device_issue_pending = ioat2_issue_pending;
 	dma->device_alloc_chan_resources = ioat2_alloc_chan_resources;
 	dma->device_free_chan_resources = ioat2_free_chan_resources;
-	dma->device_tx_status = ioat_tx_status;
+	dma->device_tx_status = ioat_dma_tx_status;
 
 	err = ioat_probe(device);
 	if (err)

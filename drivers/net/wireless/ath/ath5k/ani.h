@@ -16,6 +16,10 @@
 #ifndef ANI_H
 #define ANI_H
 
+#include "../ath.h"
+
+enum ath5k_phy_error_code;
+
 /* these thresholds are relative to the ATH5K_ANI_LISTEN_PERIOD */
 #define ATH5K_ANI_LISTEN_PERIOD		100
 #define ATH5K_ANI_OFDM_TRIG_HIGH	500
@@ -27,7 +31,7 @@
 #define ATH5K_ANI_RSSI_THR_HIGH		40
 #define ATH5K_ANI_RSSI_THR_LOW		7
 
-/* maximum availabe levels */
+/* maximum available levels */
 #define ATH5K_ANI_MAX_FIRSTEP_LVL	2
 #define ATH5K_ANI_MAX_NOISE_IMM_LVL	1
 
@@ -75,10 +79,7 @@ struct ath5k_ani_state {
 	unsigned int		cck_errors;
 
 	/* debug/statistics only: numbers from last ANI calibration */
-	unsigned int		pfc_tx;
-	unsigned int		pfc_rx;
-	unsigned int		pfc_busy;
-	unsigned int		pfc_cycles;
+	struct ath_cycle_counters last_cc;
 	unsigned int		last_listen;
 	unsigned int		last_ofdm_errors;
 	unsigned int		last_cck_errors;

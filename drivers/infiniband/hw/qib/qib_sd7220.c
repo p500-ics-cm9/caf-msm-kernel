@@ -876,7 +876,7 @@ static int qib_sd7220_prog_ld(struct qib_devdata *dd, int sdnum,
 #define SD_PRAM_ERROR_LIMIT 42
 
 static int qib_sd7220_prog_vfy(struct qib_devdata *dd, int sdnum,
-			const u8 *img, int len, int offset)
+			       const u8 *img, int len, int offset)
 {
 	int cnt, sofar, req, idx, errors;
 	unsigned char readback[VFY_CHUNK];

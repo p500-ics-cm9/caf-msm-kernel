@@ -9,6 +9,7 @@
 #ifndef _LINUX_SUNRPC_CLNT_H
 #define _LINUX_SUNRPC_CLNT_H
 
+#include <linux/types.h>
 #include <linux/socket.h>
 #include <linux/in.h>
 #include <linux/in6.h>
@@ -30,7 +31,7 @@ struct rpc_inode;
  * The high-level client handle
  */
 struct rpc_clnt {
-	struct kref		cl_kref;	/* Number of references */
+	atomic_t		cl_count;	/* Number of references */
 	struct list_head	cl_clients;	/* Global list of clients */
 	struct list_head	cl_tasks;	/* List of tasks */
 	spinlock_t		cl_lock;	/* spinlock */
@@ -89,8 +90,8 @@ struct rpc_version {
  */
 struct rpc_procinfo {
 	u32			p_proc;		/* RPC procedure number */
-	kxdrproc_t		p_encode;	/* XDR encode function */
-	kxdrproc_t		p_decode;	/* XDR decode function */
+	kxdreproc_t		p_encode;	/* XDR encode function */
+	kxdrdproc_t		p_decode;	/* XDR decode function */
 	unsigned int		p_arglen;	/* argument hdr length (u32) */
 	unsigned int		p_replen;	/* reply hdr length (u32) */
 	unsigned int		p_count;	/* call count */
@@ -102,6 +103,7 @@ struct rpc_procinfo {
 #ifdef __KERNEL__
 
 struct rpc_create_args {
+	struct net		*net;
 	int			protocol;
 	struct sockaddr		*address;
 	size_t			addrsize;
@@ -128,15 +130,16 @@ struct rpc_create_args {
 struct rpc_clnt *rpc_create(struct rpc_create_args *args);
 struct rpc_clnt	*rpc_bind_new_program(struct rpc_clnt *,
 				struct rpc_program *, u32);
+void rpc_task_reset_client(struct rpc_task *task, struct rpc_clnt *clnt);
 struct rpc_clnt *rpc_clone_client(struct rpc_clnt *);
 void		rpc_shutdown_client(struct rpc_clnt *);
 void		rpc_release_client(struct rpc_clnt *);
+void		rpc_task_release_client(struct rpc_task *);
 
 int		rpcb_register(u32, u32, int, unsigned short);
 int		rpcb_v4_register(const u32 program, const u32 version,
 				 const struct sockaddr *address,
 				 const char *netid);
-int		rpcb_getport_sync(struct sockaddr_in *, u32, u32, int);
 void		rpcb_getport_async(struct rpc_task *);
 
 void		rpc_call_start(struct rpc_task *);
@@ -148,8 +151,8 @@ int		rpc_call_sync(struct rpc_clnt *clnt,
 			      const struct rpc_message *msg, int flags);
 struct rpc_task *rpc_call_null(struct rpc_clnt *clnt, struct rpc_cred *cred,
 			       int flags);
-void		rpc_restart_call_prepare(struct rpc_task *);
-void		rpc_restart_call(struct rpc_task *);
+int		rpc_restart_call_prepare(struct rpc_task *);
+int		rpc_restart_call(struct rpc_task *);
 void		rpc_setbufsize(struct rpc_clnt *, unsigned int, unsigned int);
 size_t		rpc_max_payload(struct rpc_clnt *);
 void		rpc_force_rebind(struct rpc_clnt *);
@@ -159,7 +162,7 @@ const char	*rpc_peeraddr2str(struct rpc_clnt *, enum rpc_display_format_t);
 size_t		rpc_ntop(const struct sockaddr *, char *, const size_t);
 size_t		rpc_pton(const char *, const size_t,
 			 struct sockaddr *, const size_t);
-char *		rpc_sockaddr2uaddr(const struct sockaddr *);
+char *		rpc_sockaddr2uaddr(const struct sockaddr *, gfp_t);
 size_t		rpc_uaddr2sockaddr(const char *, const size_t,
 				   struct sockaddr *, const size_t);
 
@@ -216,7 +219,13 @@ static inline bool __rpc_cmp_addr6(const struct sockaddr *sap1,
 {
 	const struct sockaddr_in6 *sin1 = (const struct sockaddr_in6 *)sap1;
 	const struct sockaddr_in6 *sin2 = (const struct sockaddr_in6 *)sap2;
-	return ipv6_addr_equal(&sin1->sin6_addr, &sin2->sin6_addr);
+
+	if (!ipv6_addr_equal(&sin1->sin6_addr, &sin2->sin6_addr))
+		return false;
+	else if (ipv6_addr_type(&sin1->sin6_addr) & IPV6_ADDR_LINKLOCAL)
+		return sin1->sin6_scope_id == sin2->sin6_scope_id;
+
+	return true;
 }
 
 static inline bool __rpc_copy_addr6(struct sockaddr *dst,

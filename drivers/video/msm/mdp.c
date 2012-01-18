@@ -203,12 +203,20 @@ static int mdp_lut_update_lcdc(struct fb_info *info, struct fb_cmap *cmap)
 
 static void mdp_lut_enable(void)
 {
-	if (mdp_lut_push) {
-		mutex_lock(&mdp_lut_push_sem);
-		mdp_lut_push = 0;
-		MDP_OUTP(MDP_BASE + 0x90070,
-				(mdp_lut_push_i << 10) | 0x17);
-		mutex_unlock(&mdp_lut_push_sem);
+	/* this interrupt is already disabled! */
+	if (!(mdp_irq_mask & mask)) {
+		printk(KERN_ERR "mdp irq already off %x %x\n",
+		       mdp_irq_mask, mask);
+		return -1;
+	}
+	/* update the irq mask to reflect the fact that the interrupt is
+	 * disabled */
+	mdp_irq_mask &= ~(mask);
+	/* if no one is waiting on the interrupt, disable it */
+	if (!mdp_irq_mask) {
+		disable_irq_nosync(mdp->irq);
+		if (clk)
+			clk_disable(clk);
 	}
 }
 
@@ -876,9 +884,8 @@ static int mdp_runtime_suspend(struct device *dev)
 
 static int mdp_runtime_resume(struct device *dev)
 {
-	dev_dbg(dev, "pm_runtime: resuming...\n");
-	return 0;
-}
+	int put_needed, ret = 0;
+	struct file *file;
 
 static struct dev_pm_ops mdp_dev_pm_ops = {
 	.runtime_suspend = mdp_runtime_suspend,
@@ -1132,36 +1139,11 @@ static int mdp_probe(struct platform_device *pdev)
 	/* link to the latest pdev */
 	mfd->pdev = msm_fb_dev;
 
-	/* add panel data */
-	if (platform_device_add_data
-	    (msm_fb_dev, pdev->dev.platform_data,
-	     sizeof(struct msm_fb_panel_data))) {
-		printk(KERN_ERR "mdp_probe: platform_device_add_data failed!\n");
-		rc = -ENOMEM;
-		goto mdp_probe_err;
-	}
-	/* data chain */
-	pdata = msm_fb_dev->dev.platform_data;
-	pdata->on = mdp_on;
-	pdata->off = mdp_off;
-	pdata->next = pdev;
-
-	switch (mfd->panel.type) {
-	case EXT_MDDI_PANEL:
-	case MDDI_PANEL:
-	case EBI2_PANEL:
-		INIT_WORK(&mfd->dma_update_worker,
-			  mdp_lcd_update_workqueue_handler);
-		INIT_WORK(&mfd->vsync_resync_worker,
-			  mdp_vsync_resync_workqueue_handler);
-		mfd->hw_refresh = FALSE;
-
-		if (mfd->panel.type == EXT_MDDI_PANEL) {
-			/* 15 fps -> 66 msec */
-			mfd->refresh_timer_duration = (66 * HZ / 1000);
-		} else {
-			/* 24 fps -> 42 msec */
-			mfd->refresh_timer_duration = (42 * HZ / 1000);
+	mdp->base = ioremap(resource->start, resource_size(resource));
+	if (mdp->base == 0) {
+		printk(KERN_ERR "msmfb: cannot allocate mdp regs!\n");
+		ret = -ENOMEM;
+		goto error_ioremap;
 	}
 
 #ifdef CONFIG_FB_MSM_MDP22
@@ -1325,26 +1307,90 @@ static int mdp_probe(struct platform_device *pdev)
 	/* set driver data */
 	platform_set_drvdata(msm_fb_dev, mfd);
 
-	rc = platform_device_add(msm_fb_dev);
-	if (rc) {
-		goto mdp_probe_err;
+	clk = clk_get(&pdev->dev, "mdp_clk");
+	if (IS_ERR(clk)) {
+		printk(KERN_INFO "mdp: failed to get mdp clk");
+		ret = PTR_ERR(clk);
+		goto error_get_clk;
 	}
 
-	pm_runtime_set_active(&pdev->dev);
-	pm_runtime_enable(&pdev->dev);
+	ret = request_irq(mdp->irq, mdp_isr, 0, "msm_mdp", mdp);
+	if (ret)
+		goto error_request_irq;
+	disable_irq(mdp->irq);
+	mdp_irq_mask = 0;
 
-	pdev_list[pdev_list_cnt++] = pdev;
-	mdp4_extn_disp = 0;
+	/* debug interface write access */
+	mdp_writel(mdp, 1, 0x60);
+
+	mdp_writel(mdp, MDP_ANY_INTR_MASK, MDP_INTR_ENABLE);
+	mdp_writel(mdp, 1, MDP_EBI2_PORTMAP_MODE);
+
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x01f8);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x01fc);
+
+	for (n = 0; n < ARRAY_SIZE(csc_table); n++)
+		mdp_writel(mdp, csc_table[n].val, csc_table[n].reg);
+
+	/* clear up unused fg/main registers */
+	/* comp.plane 2&3 ystride */
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0120);
+
+	/* unpacked pattern */
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x012c);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0130);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0134);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0158);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x015c);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0160);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0170);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0174);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x017c);
+
+	/* comp.plane 2 & 3 */
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0114);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x0118);
+
+	/* clear unused bg registers */
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x01c8);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x01d0);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x01dc);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x01e0);
+	mdp_writel(mdp, 0, MDP_CMD_DEBUG_ACCESS_BASE + 0x01e4);
+
+	for (n = 0; n < ARRAY_SIZE(mdp_upscale_table); n++)
+		mdp_writel(mdp, mdp_upscale_table[n].val,
+		       mdp_upscale_table[n].reg);
+
+	for (n = 0; n < 9; n++)
+		mdp_writel(mdp, mdp_default_ccs[n], 0x40440 + 4 * n);
+	mdp_writel(mdp, mdp_default_ccs[9], 0x40500 + 4 * 0);
+	mdp_writel(mdp, mdp_default_ccs[10], 0x40500 + 4 * 0);
+	mdp_writel(mdp, mdp_default_ccs[11], 0x40500 + 4 * 0);
+
+	/* register mdp device */
+	mdp->mdp_dev.dev.parent = &pdev->dev;
+	mdp->mdp_dev.dev.class = mdp_class;
+	dev_set_name(&mdp->mdp_dev.dev, "mdp%d", pdev->id);
+
+	/* if you can remove the platform device you'd have to implement
+	 * this:
+	mdp_dev.release = mdp_class; */
+
+	ret = device_register(&mdp->mdp_dev.dev);
+	if (ret)
+		goto error_device_register;
 	return 0;
 
-      mdp_probe_err:
-	platform_device_put(msm_fb_dev);
-#ifdef CONFIG_MSM_BUS_SCALING
-	if (mdp_pdata && mdp_pdata->mdp_bus_scale_table &&
-		mdp_bus_scale_handle > 0)
-		msm_bus_scale_unregister_client(mdp_bus_scale_handle);
-#endif
-	return rc;
+error_device_register:
+	free_irq(mdp->irq, mdp);
+error_request_irq:
+error_get_clk:
+	iounmap(mdp->base);
+error_get_irq:
+error_ioremap:
+	kfree(mdp);
+	return ret;
 }
 
 #ifdef CONFIG_PM

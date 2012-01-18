@@ -3,7 +3,7 @@
  *
  * Copyright(C) 2005, Benedikt Spranger <b.spranger@linutronix.de>
  * Copyright(C) 2005, Thomas Gleixner <tglx@linutronix.de>
- * Copyright(C) 2006, Hans J. Koch <hjk@linutronix.de>
+ * Copyright(C) 2006, Hans J. Koch <hjk@hansjkoch.de>
  * Copyright(C) 2006, Greg Kroah-Hartman <greg@kroah.com>
  *
  * Userspace IO driver.
@@ -23,7 +23,10 @@ struct uio_map;
 /**
  * struct uio_mem - description of a UIO memory region
  * @name:		name of the memory region for identification
- * @addr:		address of the device's memory
+ * @addr:		address of the device's memory (phys_addr is used since
+ * 			addr can be logical, virtual, or physical & phys_addr_t
+ * 			should always be large enough to handle any of the
+ * 			address types)
  * @size:		size of IO
  * @memtype:		type of memory addr points to
  * @internal_addr:	ioremap-ped version of addr, for driver internal use
@@ -31,7 +34,7 @@ struct uio_map;
  */
 struct uio_mem {
 	const char		*name;
-	unsigned long		addr;
+	phys_addr_t		addr;
 	unsigned long		size;
 	int			memtype;
 	void __iomem		*internal_addr;
@@ -108,7 +111,7 @@ extern void uio_event_notify(struct uio_info *info);
 
 /* defines for uio_info->irq */
 #define UIO_IRQ_CUSTOM	-1
-#define UIO_IRQ_NONE	-2
+#define UIO_IRQ_NONE	0
 
 /* defines for uio_mem->memtype */
 #define UIO_MEM_NONE	0

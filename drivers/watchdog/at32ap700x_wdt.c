@@ -347,9 +347,9 @@ static int __init at32_wdt_probe(struct platform_device *pdev)
 		wdt->users = 0;
 	}
 
-	wdt->miscdev.minor = WATCHDOG_MINOR;
-	wdt->miscdev.name = "watchdog";
-	wdt->miscdev.fops = &at32_wdt_fops;
+	wdt->miscdev.minor	= WATCHDOG_MINOR;
+	wdt->miscdev.name	= "watchdog";
+	wdt->miscdev.fops	= &at32_wdt_fops;
 	wdt->miscdev.parent	= &pdev->dev;
 
 	platform_set_drvdata(pdev, wdt);
@@ -448,7 +448,7 @@ static void __exit at32_wdt_exit(void)
 }
 module_exit(at32_wdt_exit);
 
-MODULE_AUTHOR("Hans-Christian Egtvedt <hcegtvedt@atmel.com>");
+MODULE_AUTHOR("Hans-Christian Egtvedt <egtvedt@samfundet.no>");
 MODULE_DESCRIPTION("Watchdog driver for Atmel AT32AP700X");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);

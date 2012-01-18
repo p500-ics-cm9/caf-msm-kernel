@@ -136,8 +136,8 @@ static void __init bcmring_init_machine(void)
 *
 *****************************************************************************/
 
-static void __init bcmring_fixup(struct machine_desc *desc,
-     struct tag *t, char **cmdline, struct meminfo *mi) {
+static void __init bcmring_fixup(struct tag *t, char **cmdline,
+	struct meminfo *mi) {
 #ifdef CONFIG_BLK_DEV_INITRD
 	printk(KERN_NOTICE "bcmring_fixup\n");
 	t->hdr.tag = ATAG_CORE;
@@ -167,10 +167,9 @@ static void __init bcmring_fixup(struct machine_desc *desc,
 
 MACHINE_START(BCMRING, "BCMRING")
 	/* Maintainer: Broadcom Corporation */
-	.phys_io = MM_IO_START,
-	.io_pg_offst = (MM_IO_BASE >> 18) & 0xfffc,
 	.fixup = bcmring_fixup,
 	.map_io = bcmring_map_io,
+	.init_early = bcmring_init_early,
 	.init_irq = bcmring_init_irq,
 	.timer = &bcmring_timer,
 	.init_machine = bcmring_init_machine

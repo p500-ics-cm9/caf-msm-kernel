@@ -12,6 +12,7 @@ $| = 1;
 my $debugging;
 
 foreach my $file (@ARGV) {
+    next if $file =~ "include/linux/version\.h";
     # Open this file.
     open( my $f, '<', $file )
       or die "Can't open $file: $!\n";
@@ -43,7 +44,7 @@ foreach my $file (@ARGV) {
 	if (($_ =~ /LINUX_VERSION_CODE/) || ($_ =~ /\WKERNEL_VERSION/)) {
 	    $fUseVersion = 1;
             last if $iLinuxVersion;
-	}
+        }
     }
 
     # Report used version IDs without include?

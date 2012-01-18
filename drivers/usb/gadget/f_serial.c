@@ -28,46 +28,10 @@
  * if you can arrange appropriate host side drivers.
  */
 
-struct gser_descs {
-	struct usb_endpoint_descriptor	*in;
-	struct usb_endpoint_descriptor	*out;
-#ifdef CONFIG_MODEM_SUPPORT
-	struct usb_endpoint_descriptor	*notify;
-#endif
-};
-
 struct f_gser {
 	struct gserial			port;
 	u8				data_id;
 	u8				port_num;
-
-	struct gser_descs		fs;
-	struct gser_descs		hs;
-	u8				online;
-#ifdef CONFIG_MODEM_SUPPORT
-	u8				pending;
-	spinlock_t			lock;
-	struct usb_ep			*notify;
-	struct usb_endpoint_descriptor	*notify_desc;
-	struct usb_request		*notify_req;
-
-	struct usb_cdc_line_coding	port_line_coding;
-
-	/* SetControlLineState request */
-	u16				port_handshake_bits;
-#define ACM_CTRL_RTS	(1 << 1)	/* unused with full duplex */
-#define ACM_CTRL_DTR	(1 << 0)	/* host is ready for data r/w */
-
-	/* SerialState notification */
-	u16				serial_state;
-#define ACM_CTRL_OVERRUN	(1 << 6)
-#define ACM_CTRL_PARITY		(1 << 5)
-#define ACM_CTRL_FRAMING	(1 << 4)
-#define ACM_CTRL_RI		(1 << 3)
-#define ACM_CTRL_BRK		(1 << 2)
-#define ACM_CTRL_DSR		(1 << 1)
-#define ACM_CTRL_DCD		(1 << 0)
-#endif
 };
 
 static inline struct f_gser *func_to_gser(struct usb_function *f)
@@ -346,13 +310,16 @@ static int gser_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	if (gser->port.in->driver_data) {
 		DBG(cdev, "reset generic data ttyGS%d\n", gser->port_num);
 		gserial_disconnect(&gser->port);
-	} else {
-		DBG(cdev, "activate generic data ttyGS%d\n", gser->port_num);
 	}
-		gser->port.in_desc = ep_choose(cdev->gadget,
-				gser->hs.in, gser->fs.in);
-		gser->port.out_desc = ep_choose(cdev->gadget,
-				gser->hs.out, gser->fs.out);
+	if (!gser->port.in->desc || !gser->port.out->desc) {
+		DBG(cdev, "activate generic ttyGS%d\n", gser->port_num);
+		if (!config_ep_by_speed(cdev->gadget, f, gser->port.in) ||
+		    !config_ep_by_speed(cdev->gadget, f, gser->port.out)) {
+			gser->port.in->desc = NULL;
+			gser->port.out->desc = NULL;
+			return -EINVAL;
+		}
+	}
 	gserial_connect(&gser->port, gser->port_num);
 	gser->online = 1;
 	return rc;
@@ -582,16 +549,6 @@ gser_bind(struct usb_configuration *c, struct usb_function *f)
 	/* copy descriptors, and track endpoint copies */
 	f->descriptors = usb_copy_descriptors(gser_fs_function);
 
-	gser->fs.in = usb_find_endpoint(gser_fs_function,
-			f->descriptors, &gser_fs_in_desc);
-	gser->fs.out = usb_find_endpoint(gser_fs_function,
-			f->descriptors, &gser_fs_out_desc);
-#ifdef CONFIG_MODEM_SUPPORT
-	gser->fs.notify = usb_find_endpoint(gser_fs_function,
-			f->descriptors, &gser_fs_notify_desc);
-#endif
-
-
 	/* support all relevant hardware speeds... we expect that when
 	 * hardware is dual speed, all bulk-capable endpoints work at
 	 * both speeds
@@ -608,15 +565,6 @@ gser_bind(struct usb_configuration *c, struct usb_function *f)
 
 		/* copy descriptors, and track endpoint copies */
 		f->hs_descriptors = usb_copy_descriptors(gser_hs_function);
-
-		gser->hs.in = usb_find_endpoint(gser_hs_function,
-				f->hs_descriptors, &gser_hs_in_desc);
-		gser->hs.out = usb_find_endpoint(gser_hs_function,
-				f->hs_descriptors, &gser_hs_out_desc);
-#ifdef CONFIG_MODEM_SUPPORT
-		gser->hs.notify = usb_find_endpoint(gser_hs_function,
-				f->hs_descriptors, &gser_hs_notify_desc);
-#endif
 	}
 
 	DBG(cdev, "generic ttyGS%d: %s speed IN/%s OUT/%s\n",

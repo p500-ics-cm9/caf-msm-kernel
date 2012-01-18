@@ -23,20 +23,6 @@
 #include "proc_comm.h"
 #include "clock.h"
 #include "clock-pcom.h"
-static DECLARE_BITMAP(clock_map_enabled, P_NR_CLKS);	//LHX_PM_20110503_01 add code to record which CLK is on after 6150
-static DEFINE_SPINLOCK(clock_map_lock);	//LHX_PM_20110503_01 add code to record which CLK is on after 6150
-
-struct clk_pcom {
-	unsigned count;
-	bool always_on;
-};
-
-static struct clk_pcom pcom_clocks[P_NR_CLKS] = {
-	[P_EBI1_CLK] = { .always_on = true },
-	[P_PBUS_CLK] = { .always_on = true },
-};
-
-static DEFINE_SPINLOCK(pc_clk_lock);
 
 /*
  * glue for the proc_comm interface
@@ -198,7 +184,12 @@ long pc_clk_round_rate(unsigned id, unsigned rate)
 	return rate;
 }
 
-struct clk_ops clk_ops_remote = {
+static bool pc_clk_is_local(unsigned id)
+{
+	return false;
+}
+
+struct clk_ops clk_ops_pcom = {
 	.enable = pc_clk_enable,
 	.disable = pc_clk_disable,
 	.auto_off = pc_clk_auto_off,
@@ -210,6 +201,7 @@ struct clk_ops clk_ops_remote = {
 	.get_rate = pc_clk_get_rate,
 	.is_enabled = pc_clk_is_enabled,
 	.round_rate = pc_clk_round_rate,
+	.is_local = pc_clk_is_local,
 };
 
 int pc_clk_set_rate2(unsigned id, unsigned rate)

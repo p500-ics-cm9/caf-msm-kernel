@@ -14,15 +14,15 @@
 #include <linux/spinlock.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
+#include <linux/memblock.h>
 #include <linux/sched.h>
 #include <linux/smp.h>
 #include <linux/termios.h>
 #include <linux/amba/bus.h>
 #include <linux/amba/serial.h>
 #include <linux/io.h>
+#include <linux/clkdev.h>
 
-#include <asm/clkdev.h>
-#include <mach/clkdev.h>
 #include <mach/hardware.h>
 #include <mach/platform.h>
 #include <asm/irq.h>
@@ -30,6 +30,7 @@
 #include <asm/system.h>
 #include <asm/leds.h>
 #include <asm/mach/time.h>
+#include <asm/pgtable.h>
 
 static struct amba_pl010_data integrator_uart_data;
 
@@ -119,8 +120,17 @@ static struct clk uartclk = {
 	.rate	= 14745600,
 };
 
+static struct clk dummy_apb_pclk;
+
 static struct clk_lookup lookups[] = {
-	{	/* UART0 */
+	{	/* Bus clock */
+		.con_id		= "apb_pclk",
+		.clk		= &dummy_apb_pclk,
+	}, {
+		/* Integrator/AP timer frequency */
+		.dev_id		= "ap_timer",
+		.clk		= &clk24mhz,
+	}, {	/* UART0 */
 		.dev_id		= "mb:16",
 		.clk		= &uartclk,
 	}, {	/* UART1 */
@@ -138,11 +148,14 @@ static struct clk_lookup lookups[] = {
 	}
 };
 
+void __init integrator_init_early(void)
+{
+	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
+}
+
 static int __init integrator_init(void)
 {
 	int i;
-
-	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
 
 	for (i = 0; i < ARRAY_SIZE(amba_devs); i++) {
 		struct amba_device *d = amba_devs[i];
@@ -196,7 +209,7 @@ static struct amba_pl010_data integrator_uart_data = {
 
 #define CM_CTRL	IO_ADDRESS(INTEGRATOR_HDR_CTRL)
 
-static DEFINE_SPINLOCK(cm_lock);
+static DEFINE_RAW_SPINLOCK(cm_lock);
 
 /**
  * cm_control - update the CM_CTRL register.
@@ -208,10 +221,20 @@ void cm_control(u32 mask, u32 set)
 	unsigned long flags;
 	u32 val;
 
-	spin_lock_irqsave(&cm_lock, flags);
+	raw_spin_lock_irqsave(&cm_lock, flags);
 	val = readl(CM_CTRL) & ~mask;
 	writel(val | set, CM_CTRL);
-	spin_unlock_irqrestore(&cm_lock, flags);
+	raw_spin_unlock_irqrestore(&cm_lock, flags);
 }
 
 EXPORT_SYMBOL(cm_control);
+
+/*
+ * We need to stop things allocating the low memory; ideally we need a
+ * better implementation of GFP_DMA which does not assume that DMA-able
+ * memory starts at zero.
+ */
+void __init integrator_reserve(void)
+{
+	memblock_reserve(PHYS_OFFSET, __pa(swapper_pg_dir) - PHYS_OFFSET);
+}

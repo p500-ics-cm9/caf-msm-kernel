@@ -446,7 +446,7 @@ void __init iSeries_pcibios_fixup_resources(struct pci_dev *pdev)
 
 	allocate_device_bars(pdev);
 	if (likely(sub_bus))
-	iseries_device_information(pdev, bus, *sub_bus);
+		iseries_device_information(pdev, bus, *sub_bus);
 	else
 		printk(KERN_ERR "PCI: Device node %s has missing or invalid "
 				"linux,subbus property\n", node->full_name);

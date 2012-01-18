@@ -120,7 +120,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long error_code,
 
 	/* When running in the kernel we expect faults to occur only to
 	 * addresses in user space.  All other faults represent errors in the
-	 * kernel and should generate an OOPS.  Unfortunatly, in the case of an
+	 * kernel and should generate an OOPS.  Unfortunately, in the case of an
 	 * erroneous fault occurring in a code path which already holds mmap_sem
 	 * we will deadlock attempting to validate the fault against the
 	 * address space.  Luckily the kernel only validly references user
@@ -128,7 +128,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long error_code,
 	 * exceptions table.
 	 *
 	 * As the vast majority of faults will be valid we will only perform
-	 * the source reference check when there is a possibilty of a deadlock.
+	 * the source reference check when there is a possibility of a deadlock.
 	 * Attempt to lock the address space, if we cannot we then validate the
 	 * source.  If this is invalid we can skip the address space check,
 	 * thus avoiding the deadlock.
@@ -271,7 +271,7 @@ no_context:
 out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (!(error_code & ACE_USERMODE))
-	goto no_context;
+		goto no_context;
 	pagefault_out_of_memory();
 	return;
 

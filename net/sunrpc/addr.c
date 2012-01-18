@@ -151,7 +151,7 @@ static size_t rpc_pton4(const char *buf, const size_t buflen,
 		return 0;
 
 	sin->sin_family = AF_INET;
-	return sizeof(struct sockaddr_in);;
+	return sizeof(struct sockaddr_in);
 }
 
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
@@ -255,12 +255,13 @@ EXPORT_SYMBOL_GPL(rpc_pton);
 /**
  * rpc_sockaddr2uaddr - Construct a universal address string from @sap.
  * @sap: socket address
+ * @gfp_flags: allocation mode
  *
  * Returns a %NUL-terminated string in dynamically allocated memory;
  * otherwise NULL is returned if an error occurred.  Caller must
  * free the returned string.
  */
-char *rpc_sockaddr2uaddr(const struct sockaddr *sap)
+char *rpc_sockaddr2uaddr(const struct sockaddr *sap, gfp_t gfp_flags)
 {
 	char portbuf[RPCBIND_MAXUADDRPLEN];
 	char addrbuf[RPCBIND_MAXUADDRLEN];
@@ -288,9 +289,8 @@ char *rpc_sockaddr2uaddr(const struct sockaddr *sap)
 	if (strlcat(addrbuf, portbuf, sizeof(addrbuf)) > sizeof(addrbuf))
 		return NULL;
 
-	return kstrdup(addrbuf, GFP_KERNEL);
+	return kstrdup(addrbuf, gfp_flags);
 }
-EXPORT_SYMBOL_GPL(rpc_sockaddr2uaddr);
 
 /**
  * rpc_uaddr2sockaddr - convert a universal address to a socket address.

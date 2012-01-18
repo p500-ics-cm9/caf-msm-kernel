@@ -2,7 +2,7 @@
  * arch/arm/mach-ep93xx/simone.c
  * Simplemachines Sim.One support.
  *
- * Copyright (C) 2010 Ryan Mallon <ryan@bluewatersys.com>
+ * Copyright (C) 2010 Ryan Mallon
  *
  * Based on the 2.6.24.7 support:
  *   Copyright (C) 2009 Simplemachines
@@ -18,36 +18,15 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/mtd/physmap.h>
-#include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/i2c-gpio.h>
 
 #include <mach/hardware.h>
 #include <mach/fb.h>
+#include <mach/gpio-ep93xx.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
-
-static struct physmap_flash_data simone_flash_data = {
-	.width		= 2,
-};
-
-static struct resource simone_flash_resource = {
-	.start		= EP93XX_CS6_PHYS_BASE,
-	.end		= EP93XX_CS6_PHYS_BASE + SZ_8M - 1,
-	.flags		= IORESOURCE_MEM,
-};
-
-static struct platform_device simone_flash = {
-	.name		= "physmap-flash",
-	.id		= 0,
-	.num_resources	= 1,
-	.resource	= &simone_flash_resource,
-	.dev = {
-		.platform_data	= &simone_flash_data,
-	},
-};
 
 static struct ep93xx_eth_data __initdata simone_eth_data = {
 	.phy_id		= 1,
@@ -74,22 +53,31 @@ static struct i2c_board_info __initdata simone_i2c_board_info[] = {
 	},
 };
 
+static struct platform_device simone_audio_device = {
+	.name		= "simone-audio",
+	.id		= -1,
+};
+
+static void __init simone_register_audio(void)
+{
+	ep93xx_register_ac97();
+	platform_device_register(&simone_audio_device);
+}
+
 static void __init simone_init_machine(void)
 {
 	ep93xx_init_devices();
-
-	platform_device_register(&simone_flash);
+	ep93xx_register_flash(2, EP93XX_CS6_PHYS_BASE, SZ_8M);
 	ep93xx_register_eth(&simone_eth_data, 1);
 	ep93xx_register_fb(&simone_fb_info);
 	ep93xx_register_i2c(&simone_i2c_gpio_data, simone_i2c_board_info,
 			    ARRAY_SIZE(simone_i2c_board_info));
+	simone_register_audio();
 }
 
 MACHINE_START(SIM_ONE, "Simplemachines Sim.One Board")
-/* Maintainer: Ryan Mallon <ryan@bluewatersys.com> */
-	.phys_io	= EP93XX_APB_PHYS_BASE,
-	.io_pg_offst	= ((EP93XX_APB_VIRT_BASE) >> 18) & 0xfffc,
-	.boot_params	= EP93XX_SDCE0_PHYS_BASE + 0x100,
+	/* Maintainer: Ryan Mallon */
+	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
 	.timer		= &ep93xx_timer,

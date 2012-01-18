@@ -343,7 +343,7 @@ static int c6xdigio_pwmo_insn_read(struct comedi_device *dev,
 				   struct comedi_subdevice *s,
 				   struct comedi_insn *insn, unsigned int *data)
 {
-	printk("c6xdigio_pwmo_insn_read %x\n", insn->n);
+	printk(KERN_DEBUG "c6xdigio_pwmo_insn_read %x\n", insn->n);
 	return insn->n;
 }
 
@@ -439,9 +439,9 @@ static int c6xdigio_attach(struct comedi_device *dev,
 	struct comedi_subdevice *s;
 
 	iobase = it->options[0];
-	printk("comedi%d: c6xdigio: 0x%04lx\n", dev->minor, iobase);
+	printk(KERN_DEBUG "comedi%d: c6xdigio: 0x%04lx\n", dev->minor, iobase);
 	if (!request_region(iobase, C6XDIGIO_SIZE, "c6xdigio")) {
-		printk("comedi%d: I/O port conflict\n", dev->minor);
+		printk(KERN_ERR "comedi%d: I/O port conflict\n", dev->minor);
 		return -EIO;
 	}
 	dev->iobase = iobase;
@@ -456,9 +456,10 @@ static int c6xdigio_attach(struct comedi_device *dev,
 
 	irq = it->options[1];
 	if (irq > 0)
-		printk("comedi%d: irq = %u ignored\n", dev->minor, irq);
+		printk(KERN_DEBUG "comedi%d: irq = %u ignored\n",
+				dev->minor, irq);
 	else if (irq == 0)
-		printk("comedi%d: no irq\n", dev->minor);
+		printk(KERN_DEBUG "comedi%d: no irq\n", dev->minor);
 
 	s = dev->subdevices + 0;
 	/* pwm output subdevice */
@@ -503,7 +504,7 @@ static int c6xdigio_detach(struct comedi_device *dev)
 {
 	/* board_halt(dev);  may not need this */
 
-	printk("comedi%d: c6xdigio: remove\n", dev->minor);
+	printk(KERN_DEBUG "comedi%d: c6xdigio: remove\n", dev->minor);
 
 	if (dev->iobase)
 		release_region(dev->iobase, C6XDIGIO_SIZE);
@@ -517,4 +518,19 @@ static int c6xdigio_detach(struct comedi_device *dev)
 	return 0;
 }
 
-COMEDI_INITCLEANUP(driver_c6xdigio);
+static int __init driver_c6xdigio_init_module(void)
+{
+	return comedi_driver_register(&driver_c6xdigio);
+}
+
+static void __exit driver_c6xdigio_cleanup_module(void)
+{
+	comedi_driver_unregister(&driver_c6xdigio);
+}
+
+module_init(driver_c6xdigio_init_module);
+module_exit(driver_c6xdigio_cleanup_module);
+
+MODULE_AUTHOR("Comedi http://www.comedi.org");
+MODULE_DESCRIPTION("Comedi low-level driver");
+MODULE_LICENSE("GPL");

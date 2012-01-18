@@ -20,7 +20,6 @@ extern void machine_power_off_smp(void);
 
 extern int __cpu_disable (void);
 extern void __cpu_die (unsigned int cpu);
-extern void cpu_die (void) __attribute__ ((noreturn));
 extern int __cpu_up (unsigned int cpu);
 
 extern struct mutex smp_cpu_state_mutex;
@@ -34,6 +33,7 @@ extern struct save_area *zfcpdump_save_areas[NR_CPUS + 1];
 extern void smp_switch_to_ipl_cpu(void (*func)(void *), void *);
 extern void smp_switch_to_cpu(void (*)(void *), void *, unsigned long sp,
 			      int from, int to);
+extern void smp_restart_with_online_cpu(void);
 extern void smp_restart_cpu(void);
 
 /*
@@ -65,14 +65,20 @@ static inline void smp_switch_to_ipl_cpu(void (*func)(void *), void *data)
 	func(data);
 }
 
+static inline void smp_restart_with_online_cpu(void)
+{
+}
+
 #define smp_vcpu_scheduled	(1)
 
 #endif /* CONFIG_SMP */
 
 #ifdef CONFIG_HOTPLUG_CPU
 extern int smp_rescan_cpus(void);
+extern void __noreturn cpu_die(void);
 #else
 static inline int smp_rescan_cpus(void) { return 0; }
+static inline void cpu_die(void) { }
 #endif
 
 #endif /* __ASM_SMP_H */

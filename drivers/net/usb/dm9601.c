@@ -428,7 +428,7 @@ static const struct net_device_ops dm9601_netdev_ops = {
 	.ndo_change_mtu		= usbnet_change_mtu,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_do_ioctl 		= dm9601_ioctl,
-	.ndo_set_multicast_list = dm9601_set_multicast,
+	.ndo_set_rx_mode	= dm9601_set_multicast,
 	.ndo_set_mac_address	= dm9601_set_mac_address,
 };
 
@@ -599,13 +599,13 @@ static void dm9601_status(struct usbnet *dev, struct urb *urb)
 
 static int dm9601_link_reset(struct usbnet *dev)
 {
-	struct ethtool_cmd ecmd;
+	struct ethtool_cmd ecmd = { .cmd = ETHTOOL_GSET };
 
 	mii_check_media(&dev->mii, 1, 1);
 	mii_ethtool_gset(&dev->mii, &ecmd);
 
-	netdev_dbg(dev->net, "link_reset() speed: %d duplex: %d\n",
-		   ecmd.speed, ecmd.duplex);
+	netdev_dbg(dev->net, "link_reset() speed: %u duplex: %d\n",
+		   ethtool_cmd_speed(&ecmd), ecmd.duplex);
 
 	return 0;
 }
@@ -649,6 +649,10 @@ static const struct usb_device_id products[] = {
 	{
 	USB_DEVICE(0x0fe6, 0x8101),	/* DM9601 USB to Fast Ethernet Adapter */
 	.driver_info = (unsigned long)&dm9601_info,
+	 },
+	{
+	 USB_DEVICE(0x0fe6, 0x9700),	/* DM9601 USB to Fast Ethernet Adapter */
+	 .driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
 	 USB_DEVICE(0x0a46, 0x9000),	/* DM9000E */

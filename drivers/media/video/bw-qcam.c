@@ -71,7 +71,6 @@ OTHER DEALINGS IN THE SOFTWARE.
 #include <linux/mm.h>
 #include <linux/parport.h>
 #include <linux/sched.h>
-#include <linux/version.h>
 #include <linux/videodev2.h>
 #include <linux/mutex.h>
 #include <asm/uaccess.h>
@@ -647,28 +646,27 @@ static int qcam_querycap(struct file *file, void  *priv,
 	strlcpy(vcap->driver, qcam->v4l2_dev.name, sizeof(vcap->driver));
 	strlcpy(vcap->card, "B&W Quickcam", sizeof(vcap->card));
 	strlcpy(vcap->bus_info, "parport", sizeof(vcap->bus_info));
-	vcap->version = KERNEL_VERSION(0, 0, 2);
 	vcap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_READWRITE;
-			return 0;
+	return 0;
 }
 
 static int qcam_enum_input(struct file *file, void *fh, struct v4l2_input *vin)
 {
 	if (vin->index > 0)
-				return -EINVAL;
+		return -EINVAL;
 	strlcpy(vin->name, "Camera", sizeof(vin->name));
 	vin->type = V4L2_INPUT_TYPE_CAMERA;
 	vin->audioset = 0;
 	vin->tuner = 0;
 	vin->std = 0;
 	vin->status = 0;
-			return 0;
+	return 0;
 }
 
 static int qcam_g_input(struct file *file, void *fh, unsigned int *inp)
 {
 	*inp = 0;
-			return 0;
+	return 0;
 }
 
 static int qcam_s_input(struct file *file, void *fh, unsigned int inp)
@@ -686,8 +684,8 @@ static int qcam_queryctrl(struct file *file, void *priv,
 		return v4l2_ctrl_query_fill(qc, 0, 255, 1, 192);
 	case V4L2_CID_GAMMA:
 		return v4l2_ctrl_query_fill(qc, 0, 255, 1, 105);
-		}
-				return -EINVAL;
+	}
+	return -EINVAL;
 }
 
 static int qcam_g_ctrl(struct file *file, void *priv,
@@ -719,7 +717,7 @@ static int qcam_s_ctrl(struct file *file, void *priv,
 	struct qcam *qcam = video_drvdata(file);
 	int ret = 0;
 
-			mutex_lock(&qcam->lock);
+	mutex_lock(&qcam->lock);
 	switch (ctrl->id) {
 	case V4L2_CID_BRIGHTNESS:
 		qcam->brightness = ctrl->value;
@@ -735,8 +733,8 @@ static int qcam_s_ctrl(struct file *file, void *priv,
 		break;
 	}
 	if (ret == 0) {
-			qc_setscanmode(qcam);
-			qcam->status |= QC_PARAM_CHANGE;
+		qc_setscanmode(qcam);
+		qcam->status |= QC_PARAM_CHANGE;
 	}
 	mutex_unlock(&qcam->lock);
 	return ret;
@@ -755,7 +753,7 @@ static int qcam_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 	pix->sizeimage = qcam->width * qcam->height;
 	/* Just a guess */
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
-			return 0;
+	return 0;
 }
 
 static int qcam_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *fmt)
@@ -771,7 +769,7 @@ static int qcam_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format 
 	} else {
 		pix->height = 240;
 		pix->width = 320;
-		}
+	}
 	if (pix->pixelformat != V4L2_PIX_FMT_Y4 &&
 	    pix->pixelformat != V4L2_PIX_FMT_Y6)
 		pix->pixelformat = V4L2_PIX_FMT_Y4;
@@ -791,24 +789,24 @@ static int qcam_s_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 
 	if (ret)
 		return ret;
-			qcam->width = 320;
-			qcam->height = 240;
+	qcam->width = 320;
+	qcam->height = 240;
 	if (pix->height == 60)
-			qcam->transfer_scale = 4;
+		qcam->transfer_scale = 4;
 	else if (pix->height == 120)
-				qcam->transfer_scale = 2;
+		qcam->transfer_scale = 2;
 	else
-				qcam->transfer_scale = 1;
+		qcam->transfer_scale = 1;
 	if (pix->pixelformat == V4L2_PIX_FMT_Y6)
 		qcam->bpp = 6;
 	else
 		qcam->bpp = 4;
 
-			mutex_lock(&qcam->lock);
-			qc_setscanmode(qcam);
-			/* We must update the camera before we grab. We could
-			   just have changed the grab size */
-			qcam->status |= QC_PARAM_CHANGE;
+	mutex_lock(&qcam->lock);
+	qc_setscanmode(qcam);
+	/* We must update the camera before we grab. We could
+	   just have changed the grab size */
+	qcam->status |= QC_PARAM_CHANGE;
 	mutex_unlock(&qcam->lock);
 	return 0;
 }
@@ -860,7 +858,7 @@ static ssize_t qcam_read(struct file *file, char __user *buf,
 
 static const struct v4l2_file_operations qcam_fops = {
 	.owner		= THIS_MODULE,
-	.ioctl          = video_ioctl2,
+	.unlocked_ioctl = video_ioctl2,
 	.read		= qcam_read,
 };
 
@@ -895,6 +893,7 @@ static struct qcam *qcam_init(struct parport *port)
 
 	if (v4l2_device_register(NULL, v4l2_dev) < 0) {
 		v4l2_err(v4l2_dev, "Could not register v4l2_device\n");
+		kfree(qcam);
 		return NULL;
 	}
 
@@ -1092,3 +1091,4 @@ module_init(init_bw_qcams);
 module_exit(exit_bw_qcams);
 
 MODULE_LICENSE("GPL");
+MODULE_VERSION("0.0.3");

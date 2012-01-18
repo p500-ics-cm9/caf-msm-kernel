@@ -191,7 +191,7 @@ static int __devinit snd_gusmax_mixer(struct snd_wss *chip)
 
 static void snd_gusmax_free(struct snd_card *card)
 {
-	struct snd_gusmax *maxcard = (struct snd_gusmax *)card->private_data;
+	struct snd_gusmax *maxcard = card->private_data;
 	
 	if (maxcard == NULL)
 		return;
@@ -219,7 +219,7 @@ static int __devinit snd_gusmax_probe(struct device *pdev, unsigned int dev)
 	if (err < 0)
 		return err;
 	card->private_free = snd_gusmax_free;
-	maxcard = (struct snd_gusmax *)card->private_data;
+	maxcard = card->private_data;
 	maxcard->card = card;
 	maxcard->irq = -1;
 	
@@ -291,7 +291,7 @@ static int __devinit snd_gusmax_probe(struct device *pdev, unsigned int dev)
 		goto _err;
 	}
 
-	if (request_irq(xirq, snd_gusmax_interrupt, IRQF_DISABLED, "GUS MAX", (void *)maxcard)) {
+	if (request_irq(xirq, snd_gusmax_interrupt, 0, "GUS MAX", (void *)maxcard)) {
 		snd_printk(KERN_ERR PFX "unable to grab IRQ %d\n", xirq);
 		err = -EBUSY;
 		goto _err;

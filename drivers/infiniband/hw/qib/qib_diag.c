@@ -136,7 +136,8 @@ static const struct file_operations diag_file_ops = {
 	.write = qib_diag_write,
 	.read = qib_diag_read,
 	.open = qib_diag_open,
-	.release = qib_diag_release
+	.release = qib_diag_release,
+	.llseek = default_llseek,
 };
 
 static atomic_t diagpkt_count = ATOMIC_INIT(0);
@@ -149,6 +150,7 @@ static ssize_t qib_diagpkt_write(struct file *fp, const char __user *data,
 static const struct file_operations diagpkt_file_ops = {
 	.owner = THIS_MODULE,
 	.write = qib_diagpkt_write,
+	.llseek = noop_llseek,
 };
 
 int qib_diag_add(struct qib_devdata *dd)
@@ -252,7 +254,7 @@ static u32 __iomem *qib_remap_ioaddr32(struct qib_devdata *dd, u32 offset,
 		/* If user regs mapped, they are after send, so set limit. */
 		u32 ulim = (dd->cfgctxts * dd->ureg_align) + dd->uregbase;
 		if (!dd->piovl15base)
-		snd_lim = dd->uregbase;
+			snd_lim = dd->uregbase;
 		krb32 = (u32 __iomem *)dd->userbase;
 		if (offset >= dd->uregbase && offset < ulim) {
 			map = krb32 + (offset - dd->uregbase) / sizeof(u32);

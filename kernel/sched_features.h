@@ -12,11 +12,6 @@ SCHED_FEAT(GENTLE_FAIR_SLEEPERS, 1)
 SCHED_FEAT(START_DEBIT, 1)
 
 /*
- * Should wakeups try to preempt running tasks.
- */
-SCHED_FEAT(WAKEUP_PREEMPT, 1)
-
-/*
  * Based on load and program behaviour, see if it makes sense to place
  * a newly woken task on the same cpu as the task that woke it --
  * improve cache locality. Typically used with SYNC wakeups as
@@ -52,8 +47,6 @@ SCHED_FEAT(ARCH_POWER, 0)
 SCHED_FEAT(HRTICK, 0)
 SCHED_FEAT(DOUBLE_TICK, 0)
 SCHED_FEAT(LB_BIAS, 1)
-SCHED_FEAT(LB_SHARES_UPDATE, 1)
-SCHED_FEAT(ASYM_EFF_LOAD, 1)
 
 /*
  * Spin-wait on mutex acquisition when the mutex owner is running on
@@ -61,3 +54,16 @@ SCHED_FEAT(ASYM_EFF_LOAD, 1)
  * release the lock. Decreases scheduling overhead.
  */
 SCHED_FEAT(OWNER_SPIN, 1)
+
+/*
+ * Decrement CPU power based on time not spent running tasks
+ */
+SCHED_FEAT(NONTASK_POWER, 1)
+
+/*
+ * Queue remote wakeups on the target CPU and process them
+ * using the scheduler IPI. Reduces rq->lock contention/bounces.
+ */
+SCHED_FEAT(TTWU_QUEUE, 1)
+
+SCHED_FEAT(FORCE_SD_OVERLAP, 0)

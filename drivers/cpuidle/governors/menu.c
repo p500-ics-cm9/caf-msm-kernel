@@ -12,7 +12,7 @@
 
 #include <linux/kernel.h>
 #include <linux/cpuidle.h>
-#include <linux/pm_qos_params.h>
+#include <linux/pm_qos.h>
 #include <linux/time.h>
 #include <linux/ktime.h>
 #include <linux/hrtimer.h>
@@ -80,7 +80,7 @@
  * Limiting Performance Impact
  * ---------------------------
  * C states, especially those with large exit latencies, can have a real
- * noticable impact on workloads, which is not acceptable for most sysadmins,
+ * noticeable impact on workloads, which is not acceptable for most sysadmins,
  * and in addition, less performance has a power price of its own.
  *
  * As a general rule of thumb, menu assumes that the following heuristic
@@ -237,6 +237,7 @@ static int menu_select(struct cpuidle_device *dev)
 	unsigned int power_usage = -1;
 	int i;
 	int multiplier;
+	struct timespec t;
 
 	if (data->needs_update) {
 		menu_update(dev);
@@ -251,8 +252,9 @@ static int menu_select(struct cpuidle_device *dev)
 		return 0;
 
 	/* determine the expected residency time, round up */
+	t = ktime_to_timespec(tick_nohz_get_sleep_length());
 	data->expected_us =
-	    DIV_ROUND_UP((u32)ktime_to_ns(tick_nohz_get_sleep_length()), 1000);
+		t.tv_sec * USEC_PER_SEC + t.tv_nsec / NSEC_PER_USEC;
 
 
 	data->bucket = which_bucket(data->expected_us);
@@ -297,7 +299,7 @@ static int menu_select(struct cpuidle_device *dev)
 
 		if (s->power_usage < power_usage) {
 			power_usage = s->power_usage;
-		data->last_state_idx = i;
+			data->last_state_idx = i;
 			data->exit_us = s->exit_latency;
 		}
 	}

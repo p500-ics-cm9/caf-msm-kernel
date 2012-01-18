@@ -11,13 +11,39 @@
 #include <linux/types.h>
 #include <linux/mount.h>
 
+#include <linux/nfs.h>
+#include <linux/nfs2.h>
+#include <linux/nfs3.h>
+#include <linux/nfs4.h>
+#include <linux/sunrpc/msg_prot.h>
+
 #include <linux/nfsd/debug.h>
 #include <linux/nfsd/export.h>
 #include <linux/nfsd/stats.h>
+
 /*
  * nfsd version
  */
 #define NFSD_SUPPORTED_MINOR_VERSION	1
+/*
+ * Maximum blocksizes supported by daemon under various circumstances.
+ */
+#define NFSSVC_MAXBLKSIZE       RPCSVC_MAXPAYLOAD
+/* NFSv2 is limited by the protocol specification, see RFC 1094 */
+#define NFSSVC_MAXBLKSIZE_V2    (8*1024)
+
+
+/*
+ * Largest number of bytes we need to allocate for an NFS
+ * call or reply.  Used to control buffer sizes.  We use
+ * the length of v3 WRITE, READDIR and READDIR replies
+ * which are an RPC header, up to 26 XDR units of reply
+ * data, and some page data.
+ *
+ * Note that accuracy here doesn't matter too much as the
+ * size is rounded up to a page size when allocating space.
+ */
+#define NFSD_BUFSIZE            ((RPC_MAX_HEADER_WITH_AUTH+26)*XDR_UNIT + NFSSVC_MAXBLKSIZE)
 
 struct readdir_cd {
 	__be32			err;	/* 0, nfserr, or nfserr_eof */
@@ -153,10 +179,12 @@ void		nfsd_lockd_shutdown(void);
 #define nfserr_bad_seqid	cpu_to_be32(NFSERR_BAD_SEQID)
 #define	nfserr_symlink		cpu_to_be32(NFSERR_SYMLINK)
 #define	nfserr_not_same		cpu_to_be32(NFSERR_NOT_SAME)
+#define nfserr_lock_range	cpu_to_be32(NFSERR_LOCK_RANGE)
 #define	nfserr_restorefh	cpu_to_be32(NFSERR_RESTOREFH)
 #define	nfserr_attrnotsupp	cpu_to_be32(NFSERR_ATTRNOTSUPP)
 #define	nfserr_bad_xdr		cpu_to_be32(NFSERR_BAD_XDR)
 #define	nfserr_openmode		cpu_to_be32(NFSERR_OPENMODE)
+#define	nfserr_badowner		cpu_to_be32(NFSERR_BADOWNER)
 #define	nfserr_locks_held	cpu_to_be32(NFSERR_LOCKS_HELD)
 #define	nfserr_op_illegal	cpu_to_be32(NFSERR_OP_ILLEGAL)
 #define	nfserr_grace		cpu_to_be32(NFSERR_GRACE)
@@ -248,7 +276,7 @@ extern time_t nfsd4_grace;
 #define	COMPOUND_SLACK_SPACE		140    /* OP_GETFH */
 #define COMPOUND_ERR_SLACK_SPACE	12     /* OP_SETATTR */
 
-#define NFSD_LAUNDROMAT_MINTIMEOUT      10   /* seconds */
+#define NFSD_LAUNDROMAT_MINTIMEOUT      1   /* seconds */
 
 /*
  * The following attributes are currently not supported by the NFSv4 server:
@@ -332,6 +360,13 @@ static inline u32 nfsd_suppattrs2(u32 minorversion)
 	 ~(FATTR4_WORD1_TIME_ACCESS_SET | FATTR4_WORD1_TIME_MODIFY_SET))
 #define NFSD_SUPPATTR_EXCLCREAT_WORD2 \
 	NFSD_WRITEABLE_ATTRS_WORD2
+
+extern int nfsd4_is_junction(struct dentry *dentry);
+#else
+static inline int nfsd4_is_junction(struct dentry *dentry)
+{
+	return 0;
+}
 
 #endif /* CONFIG_NFSD_V4 */
 

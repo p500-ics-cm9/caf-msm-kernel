@@ -3,7 +3,7 @@
  * MSM7K, QSD io support
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -34,46 +34,23 @@ when                who               what, where, why                comment ta
 
 #include <mach/board.h>
 
-#define MSM_DEVICE(name) { \
+#define MSM_CHIP_DEVICE(name, chip) {			      \
 		.virtual = (unsigned long) MSM_##name##_BASE, \
-		.pfn = __phys_to_pfn(MSM_##name##_PHYS), \
-		.length = MSM_##name##_SIZE, \
+		.pfn = __phys_to_pfn(chip##_##name##_PHYS), \
+		.length = chip##_##name##_SIZE, \
 		.type = MT_DEVICE_NONSHARED, \
 	 }
 
-/* msm_shared_ram_phys default value of 0x00100000 is the most common value
- * and should work as-is for any target without stacked memory.
- */
-unsigned int msm_shared_ram_phys = 0x00100000;
+#define MSM_DEVICE(name) MSM_CHIP_DEVICE(name, MSM)
 
-static void msm_map_io(struct map_desc *io_desc, int size)
-{
-	int i;
-
-	BUG_ON(!size);
-	for (i = 0; i < size; i++) {
-		if (io_desc[i].virtual == (unsigned long)MSM_SHARED_RAM_BASE)
-			io_desc[i].pfn = __phys_to_pfn(msm_shared_ram_phys);
-#if defined(CONFIG_ZTE_PLATFORM) && defined(CONFIG_F3_LOG)
-/* ZTE_F3LOG_YYM_0804 begin */
-		if (io_desc[i].virtual == (unsigned long)MSM_RAM_LOG_BASE)
-			io_desc[i].pfn = __phys_to_pfn(msm_shared_ram_phys+0x100000);
-/* ZTE_F3LOG_YYM_0804 end */
-#endif
-    }
-
-	iotable_init(io_desc, size);
-}
-
-#if defined(CONFIG_ARCH_MSM7X01A) || defined(CONFIG_ARCH_MSM7X27) \
+#if defined(CONFIG_ARCH_MSM7X00A) || defined(CONFIG_ARCH_MSM7X27) \
 	|| defined(CONFIG_ARCH_MSM7X25)
 static struct map_desc msm_io_desc[] __initdata = {
 	MSM_DEVICE(VIC),
-	MSM_DEVICE(CSR),
-	MSM_DEVICE(TMR),
+	MSM_CHIP_DEVICE(CSR, MSM7X00),
 	MSM_DEVICE(DMOV),
-	MSM_DEVICE(GPIO1),
-	MSM_DEVICE(GPIO2),
+	MSM_CHIP_DEVICE(GPIO1, MSM7X00),
+	MSM_CHIP_DEVICE(GPIO2, MSM7X00),
 	MSM_DEVICE(CLK_CTL),
 	MSM_DEVICE(AD5),
 	MSM_DEVICE(MDC),
@@ -118,11 +95,10 @@ void __init msm_map_common_io(void)
 #ifdef CONFIG_ARCH_QSD8X50
 static struct map_desc qsd8x50_io_desc[] __initdata = {
 	MSM_DEVICE(VIC),
-	MSM_DEVICE(CSR),
-	MSM_DEVICE(TMR),
+	MSM_CHIP_DEVICE(CSR, QSD8X50),
 	MSM_DEVICE(DMOV),
-	MSM_DEVICE(GPIO1),
-	MSM_DEVICE(GPIO2),
+	MSM_CHIP_DEVICE(GPIO1, QSD8X50),
+	MSM_CHIP_DEVICE(GPIO2, QSD8X50),
 	MSM_DEVICE(CLK_CTL),
 	MSM_DEVICE(SIRC),
 	MSM_DEVICE(SCPLL),
@@ -147,50 +123,41 @@ void __init msm_map_qsd8x50_io(void)
 
 #ifdef CONFIG_ARCH_MSM8X60
 static struct map_desc msm8x60_io_desc[] __initdata = {
-	MSM_DEVICE(QGIC_DIST),
-	MSM_DEVICE(QGIC_CPU),
-	MSM_DEVICE(TMR),
-	MSM_DEVICE(TMR0),
-	MSM_DEVICE(RPM_MPM),
+	MSM_CHIP_DEVICE(QGIC_DIST, MSM8X60),
+	MSM_CHIP_DEVICE(QGIC_CPU, MSM8X60),
+	MSM_CHIP_DEVICE(TMR, MSM8X60),
+	MSM_CHIP_DEVICE(TMR0, MSM8X60),
 	MSM_DEVICE(ACC),
-	MSM_DEVICE(ACC0),
-	MSM_DEVICE(ACC1),
-	MSM_DEVICE(SAW0),
-	MSM_DEVICE(SAW1),
 	MSM_DEVICE(GCC),
-	MSM_DEVICE(TLMM),
-	MSM_DEVICE(DMOV_ADM0),
-	MSM_DEVICE(DMOV_ADM1),
-	MSM_DEVICE(SCPLL),
-	MSM_DEVICE(RPM),
-	MSM_DEVICE(CLK_CTL),
-	MSM_DEVICE(MMSS_CLK_CTL),
-	MSM_DEVICE(LPASS_CLK_CTL),
-#ifdef CONFIG_MSM_DEBUG_UART
-	MSM_DEVICE(DEBUG_UART),
-#endif
-	MSM_DEVICE(SIC_NON_SECURE),
-	{
-		.virtual =  (unsigned long) MSM_SHARED_RAM_BASE,
-		.length =   MSM_SHARED_RAM_SIZE,
-		.type =     MT_DEVICE,
-	},
 };
 
 void __init msm_map_msm8x60_io(void)
 {
-	msm_map_io(msm8x60_io_desc, ARRAY_SIZE(msm8x60_io_desc));
+	iotable_init(msm8x60_io_desc, ARRAY_SIZE(msm8x60_io_desc));
 }
 #endif /* CONFIG_ARCH_MSM8X60 */
+
+#ifdef CONFIG_ARCH_MSM8960
+static struct map_desc msm8960_io_desc[] __initdata = {
+	MSM_CHIP_DEVICE(QGIC_DIST, MSM8960),
+	MSM_CHIP_DEVICE(QGIC_CPU, MSM8960),
+	MSM_CHIP_DEVICE(TMR, MSM8960),
+	MSM_CHIP_DEVICE(TMR0, MSM8960),
+};
+
+void __init msm_map_msm8960_io(void)
+{
+	iotable_init(msm8960_io_desc, ARRAY_SIZE(msm8960_io_desc));
+}
+#endif /* CONFIG_ARCH_MSM8960 */
 
 #ifdef CONFIG_ARCH_MSM7X30
 static struct map_desc msm7x30_io_desc[] __initdata = {
 	MSM_DEVICE(VIC),
-	MSM_DEVICE(CSR),
-	MSM_DEVICE(TMR),
+	MSM_CHIP_DEVICE(CSR, MSM7X30),
 	MSM_DEVICE(DMOV),
-	MSM_DEVICE(GPIO1),
-	MSM_DEVICE(GPIO2),
+	MSM_CHIP_DEVICE(GPIO1, MSM7X30),
+	MSM_CHIP_DEVICE(GPIO2, MSM7X30),
 	MSM_DEVICE(CLK_CTL),
 	MSM_DEVICE(CLK_CTL_SH2),
 	MSM_DEVICE(AD5),
@@ -248,8 +215,8 @@ void __iomem *
 __msm_ioremap(unsigned long phys_addr, size_t size, unsigned int mtype)
 {
 	if (mtype == MT_DEVICE) {
-		/* The peripherals in the 88000000 - F0000000 range
-		 * are only accessable by type MT_DEVICE_NONSHARED.
+		/* The peripherals in the 88000000 - D0000000 range
+		 * are only accessible by type MT_DEVICE_NONSHARED.
 		 * Adjust mtype as necessary to make this "just work."
 		 */
 		if ((phys_addr >= 0x88000000) && (phys_addr < 0xF0000000))

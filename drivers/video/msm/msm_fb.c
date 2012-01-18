@@ -36,65 +36,62 @@
 #include <linux/proc_fs.h>
 #include <linux/vmalloc.h>
 #include <linux/debugfs.h>
-#include <linux/console.h>
-#include <linux/android_pmem.h>
-#include <linux/leds.h>
-#include <linux/pm_runtime.h>
+#include <linux/dma-mapping.h>
 
-#define MSM_FB_C
-#include "msm_fb.h"
-#include "mddihosti.h"
-#include "tvenc.h"
-#include "mdp.h"
-#include "mdp4.h"
+#define PRINT_FPS 0
+#define PRINT_BLIT_TIME 0
 
-//ZTE_LCD_LHT_20100622_001 start
-#include <linux/proc_fs.h>
-static struct proc_dir_entry * d_entry;
-static int lcd_debug;
-char  module_name[50]={"0"};
-void init_lcd_proc(void);
-void deinit_lcd_proc(void);
-static int msm_lcd_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data);
-static int msm_lcd_write_proc(struct file *file, const char __user *buffer,unsigned long count, void *data);
-//ZTE_LCD_LHT_20100622_001 end
+#define SLEEPING 0x4
+#define UPDATING 0x3
+#define FULL_UPDATE_DONE 0x2
+#define WAKING 0x1
+#define AWAKE 0x0
 
+#define NONE 0
+#define SUSPEND_RESUME 0x1
+#define FPS 0x2
+#define BLIT_TIME 0x4
+#define SHOW_UPDATES 0x8
 
-#ifdef CONFIG_ZTE_PLATFORM
-#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
-extern int zte_get_ftm_flag(void);
-#endif
-#endif
-#ifdef CONFIG_FB_MSM_LOGO
-#define INIT_IMAGE_FILE "/logo.bmp"								////ZTE_LCD_LUYA_20091221_001
-extern int load_565rle_image(char *filename);
-#endif
+#define DLOG(mask, fmt, args...) \
+do { \
+	if (msmfb_debug_mask & mask) \
+		printk(KERN_INFO "msmfb: "fmt, ##args); \
+} while (0)
 
-static unsigned char *fbram;
-static unsigned char *fbram_phys;
-static int fbram_size;
+static int msmfb_debug_mask;
+module_param_named(msmfb_debug_mask, msmfb_debug_mask, int,
+		   S_IRUGO | S_IWUSR | S_IWGRP);
 
-static struct platform_device *pdev_list[MSM_FB_MAX_DEV_LIST];
-static int pdev_list_cnt;
+struct mdp_device *mdp;
 
-int vsync_mode = 1;
+struct msmfb_info {
+	struct fb_info *fb;
+	struct msm_panel_data *panel;
+	int xres;
+	int yres;
+	unsigned output_format;
+	unsigned yoffset;
+	unsigned frame_requested;
+	unsigned frame_done;
+	int sleeping;
+	unsigned update_frame;
+	struct {
+		int left;
+		int top;
+		int eright; /* exclusive */
+		int ebottom; /* exclusive */
+	} update_info;
+	char *black;
 
-#define MAX_BLIT_REQ 256
-
-u32 LcdPanleID=(u32)LCD_PANEL_NOPANEL;   //ZTE_LCD_LHT_20100611_001
-
-#define MAX_FBI_LIST 32
-static struct fb_info *fbi_list[MAX_FBI_LIST];
-static int fbi_list_index;
-
-static struct msm_fb_data_type *mfd_list[MAX_FBI_LIST];
-static int mfd_list_index;
-
-static u32 msm_fb_pseudo_palette[16] = {
-	0x00000000, 0xffffffff, 0xffffffff, 0xffffffff,
-	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
-	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
-	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff
+	spinlock_t update_lock;
+	struct mutex panel_init_lock;
+	wait_queue_head_t frame_wq;
+	struct work_struct resume_work;
+	struct msmfb_callback dma_callback;
+	struct msmfb_callback vsync_callback;
+	struct hrtimer fake_vsync;
+	ktime_t vsync_request_time;
 };
 
 u32 msm_fb_debug_enabled;
@@ -156,10 +153,15 @@ int msm_fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 {
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
 
-	if (!mfd->cursor_update)
-		return -ENODEV;
-
-	return mfd->cursor_update(info, cursor);
+	spin_lock_irqsave(&msmfb->update_lock, irq_flags);
+	msmfb->frame_done = msmfb->frame_requested;
+	if (msmfb->sleeping == UPDATING &&
+	    msmfb->frame_done == msmfb->update_frame) {
+		DLOG(SUSPEND_RESUME, "full update completed\n");
+		schedule_work(&msmfb->resume_work);
+	}
+	spin_unlock_irqrestore(&msmfb->update_lock, irq_flags);
+	wake_up(&msmfb->frame_wq);
 }
 
 static int msm_fb_resource_initialized;
@@ -322,33 +324,31 @@ static int msm_fb_probe(struct platform_device *pdev)
 		return 0;
 	}
 
-	if (!msm_fb_resource_initialized)
-		return -EPERM;
-
-	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
-
-	err = pm_runtime_set_active(&pdev->dev);
-	if (err < 0)
-		printk(KERN_ERR "pm_runtime: fail to set active.\n");
-
-	if (!mfd)
-		return -ENODEV;
-
-	if (mfd->key != MFD_KEY)
-		return -EINVAL;
-
-	if (pdev_list_cnt >= MSM_FB_MAX_DEV_LIST)
-		return -ENOMEM;
-
-	mfd->panel_info.frame_count = 0;
-	///ZTE_LCD_LUYA_20100325_001,LCD_LUYA_20100610_01 2009-11-28 decrease initial brightness of backlight 
-	mfd->bl_level = mfd->panel_info.bl_max/6;
-	//ZTE_LCD_LHT_20100617_001
-#ifdef CONFIG_ZTE_PLATFORM
-#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
-    if(zte_get_ftm_flag())
-    {
-        mfd->bl_level = 3;
+	sleeping = msmfb->sleeping;
+	/* on a full update, if the last frame has not completed, wait for it */
+	if ((pan_display && msmfb->frame_requested != msmfb->frame_done) ||
+			    sleeping == UPDATING) {
+		int ret;
+		spin_unlock_irqrestore(&msmfb->update_lock, irq_flags);
+		ret = wait_event_interruptible_timeout(msmfb->frame_wq,
+			msmfb->frame_done == msmfb->frame_requested &&
+			msmfb->sleeping != UPDATING, 5 * HZ);
+		if (ret <= 0 && (msmfb->frame_requested != msmfb->frame_done ||
+				 msmfb->sleeping == UPDATING)) {
+			if (retry && panel->request_vsync &&
+			    (sleeping == AWAKE)) {
+				panel->request_vsync(panel,
+					&msmfb->vsync_callback);
+				retry = 0;
+				printk(KERN_WARNING "msmfb_pan_display timeout "
+					"rerequest vsync\n");
+			} else {
+				printk(KERN_WARNING "msmfb_pan_display timeout "
+					"waiting for frame start, %d %d\n",
+					msmfb->frame_requested,
+					msmfb->frame_done);
+				return;
+			}
 		}
 #endif
 #endif
@@ -810,7 +810,23 @@ static void msm_fb_imageblit(struct fb_info *info, const struct fb_image *image)
 		var.reserved[2] = ((image->dy + image->height) << 16) |
 		    (image->dx + image->width);
 
-		msm_fb_pan_display(&var, info);
+	if (msmfb->panel->caps & MSMFB_CAP_PARTIAL_UPDATES) {
+		/*
+		 * Set the param in the fixed screen, so userspace can't
+		 * change it. This will be used to check for the
+		 * capability.
+		 */
+		fb_info->fix.reserved[0] = 0x5444;
+		fb_info->fix.reserved[1] = 0x5055;
+
+		/*
+		 * This preloads the value so that if userspace doesn't
+		 * change it, it will be a full update
+		 */
+		fb_info->var.reserved[0] = 0x54445055;
+		fb_info->var.reserved[1] = 0;
+		fb_info->var.reserved[2] = (uint16_t)msmfb->xres |
+					   ((uint32_t)msmfb->yres << 16);
 	}
 }
 
@@ -884,6 +900,20 @@ static int msm_fb_mmap(struct fb_info *info, struct vm_area_struct * vma)
 				vma->vm_page_prot))
 		return -EAGAIN;
 
+	/* check the resource is large enough to fit the fb */
+	if (resource->end - resource->start < size) {
+		printk(KERN_ERR "allocated resource is too small for "
+				"fb\n");
+		return -ENOMEM;
+	}
+	fb->fix.smem_start = resource->start;
+	fb->fix.smem_len = resource_size(resource);
+	fbram = ioremap(resource->start, resource_size(resource));
+	if (fbram == NULL) {
+		printk(KERN_ERR "msmfb: cannot allocate fbram!\n");
+		return -ENOMEM;
+	}
+	fb->screen_base = fbram;
 	return 0;
 }
 
@@ -1134,8 +1164,12 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 
 	memset(fbi->screen_base, 0x0, fix->smem_len);
 
-	mfd->op_enable = TRUE;
-	mfd->panel_power_on = FALSE;
+	spin_lock_init(&msmfb->update_lock);
+	mutex_init(&msmfb->panel_init_lock);
+	init_waitqueue_head(&msmfb->frame_wq);
+	INIT_WORK(&msmfb->resume_work, power_on_panel);
+	msmfb->black = kzalloc(msmfb->fb->var.bits_per_pixel*msmfb->xres,
+			       GFP_KERNEL);
 
 	/* cursor memory allocation */
 	if (mfd->cursor_update) {
@@ -1322,6 +1356,10 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	}
 #endif /* MSM_FB_ENABLE_DBGFS */
 
+error_register_framebuffer:
+	iounmap(fb->screen_base);
+error_setup_fbmem:
+	framebuffer_release(msmfb->fb);
 	return ret;
 }
 

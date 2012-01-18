@@ -26,6 +26,7 @@
 /*
  * Peripheral addresses
  */
+#define REALVIEW_PB1176_UART4_BASE		0x10009000 /* UART 4 */
 #define REALVIEW_PB1176_SCTL_BASE		0x10100000 /* System controller */
 #define REALVIEW_PB1176_SMC_BASE		0x10111000 /* SMC */
 #define REALVIEW_PB1176_DMC_BASE		0x10109000 /* DMC configuration */
@@ -69,6 +70,7 @@
 
 #define REALVIEW_DC1176_GIC_CPU_BASE		0x10120000 /* GIC CPU interface, on devchip */
 #define REALVIEW_DC1176_GIC_DIST_BASE		0x10121000 /* GIC distributor, on devchip */
+#define REALVIEW_DC1176_ROM_BASE		0x10200000 /* 16KiB NRAM preudo-ROM, on devchip */
 #define REALVIEW_PB1176_GIC_CPU_BASE		0x10040000 /* GIC CPU interface, on FPGA */
 #define REALVIEW_PB1176_GIC_DIST_BASE		0x10041000 /* GIC distributor, on FPGA */
 #define REALVIEW_PB1176_L220_BASE		0x10110000 /* L220 registers */

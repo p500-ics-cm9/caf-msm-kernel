@@ -19,12 +19,7 @@
 #define __ASM_ARCH_MSM_BOARD_H
 
 #include <linux/types.h>
-#include <linux/input.h>
-#include <linux/usb.h>
-#include <linux/leds-pmic8058.h>
-#ifdef CONFIG_MSM_BUS_SCALING
-#include <mach/msm_bus.h>
-#endif
+#include <mach/mmc.h>
 
 #include <asm/clkdev.h>
 /* platform device data structures */
@@ -158,7 +153,9 @@ struct msm_camera_sensor_info {
 	struct msm_camera_sensor_strobe_flash_data *strobe_flash_data;
 };
 
-struct clk;
+struct clk_lookup;
+
+extern struct sys_timer msm_timer;
 
 struct snd_endpoint {
 	int id;
@@ -317,8 +314,12 @@ void __init msm_map_msm8x60_io(void);
 void __init msm_map_msm7x30_io(void);
 void __init msm_map_comet_io(void);
 void __init msm_init_irq(void);
+void __init msm_init_gpio(void);
 void __init msm_clock_init(struct clk_lookup *clock_tbl, unsigned num_clocks);
 void __init msm_acpu_clock_init(struct msm_acpu_clock_platform_data *);
+int __init msm_add_sdcc(unsigned int controller,
+			struct msm_mmc_platform_data *plat,
+			unsigned int stat_irq, unsigned long stat_irq_flags);
 
 struct mmc_platform_data;
 int __init msm_add_sdcc(unsigned int controller,

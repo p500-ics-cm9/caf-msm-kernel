@@ -729,7 +729,7 @@ static struct of_device_id media_bay_match[] =
 static struct macio_driver media_bay_driver =
 {
 	.driver = {
-	.name		= "media-bay",
+		.name		= "media-bay",
 		.of_match_table	= media_bay_match,
 	},
 	.probe		= media_bay_attach,

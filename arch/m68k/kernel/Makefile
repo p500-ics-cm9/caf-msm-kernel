@@ -2,16 +2,20 @@
 # Makefile for the linux kernel.
 #
 
-ifndef CONFIG_SUN3
-  extra-y := head.o
-else
-  extra-y := sun3-head.o
+extra-$(CONFIG_MMU)	:= head.o
+extra-$(CONFIG_SUN3)	:= sun3-head.o
+extra-y			+= vmlinux.lds
+
+obj-y	:= entry.o m68k_ksyms.o module.o process.o ptrace.o setup.o signal.o \
+	   sys_m68k.o syscalltable.o time.o traps.o
+
+obj-$(CONFIG_MMU)	+= ints.o devres.o vectors.o
+devres-$(CONFIG_MMU)	= ../../../kernel/irq/devres.o
+
+ifndef CONFIG_MMU_SUN3
+obj-y			+= dma.o
 endif
-extra-y	+= vmlinux.lds
+ifndef CONFIG_MMU
+obj-y			+= init_task.o irq.o
+endif
 
-obj-y	:= entry.o process.o traps.o ints.o signal.o ptrace.o module.o \
-	   sys_m68k.o time.o setup.o m68k_ksyms.o devres.o
-
-devres-y = ../../../kernel/irq/devres.o
-
-obj-y$(CONFIG_MMU_SUN3) += dma.o	# no, it's not a typo

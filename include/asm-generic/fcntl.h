@@ -3,6 +3,18 @@
 
 #include <linux/types.h>
 
+/*
+ * FMODE_EXEC is 0x20
+ * FMODE_NONOTIFY is 0x1000000
+ * These cannot be used by userspace O_* until internal and external open
+ * flags are split.
+ * -Eric Paris
+ */
+
+/*
+ * When introducing new O_* bits, please check its uniqueness in fcntl_init().
+ */
+
 #define O_ACCMODE	00000003
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001
@@ -68,6 +80,10 @@
 #define O_SYNC		(__O_SYNC|O_DSYNC)
 #endif
 
+#ifndef O_PATH
+#define O_PATH		010000000
+#endif
+
 #ifndef O_NDELAY
 #define O_NDELAY	O_NONBLOCK
 #endif
@@ -110,7 +126,7 @@
 
 struct f_owner_ex {
 	int	type;
-	pid_t	pid;
+	__kernel_pid_t	pid;
 };
 
 /* for F_[GET|SET]FL */
@@ -127,11 +143,6 @@ struct f_owner_ex {
 #ifndef F_EXLCK
 #define F_EXLCK		4	/* or 3 */
 #define F_SHLCK		8	/* or 4 */
-#endif
-
-/* for leases */
-#ifndef F_INPROGRESS
-#define F_INPROGRESS	16
 #endif
 
 /* operations for bsd flock(), also used by the kernel implementation */

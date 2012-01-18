@@ -35,29 +35,24 @@
 #include <linux/init.h>
 #include <linux/time.h>
 #include <linux/cpu.h>
+#include <linux/prefetch.h>
 
-/* Global control variables for rcupdate callback mechanism. */
-struct rcu_ctrlblk {
-	struct rcu_head *rcucblist;	/* List of pending callbacks (CBs). */
-	struct rcu_head **donetail;	/* ->next pointer of last "done" CB. */
-	struct rcu_head **curtail;	/* ->next pointer of last CB. */
-};
+#ifdef CONFIG_RCU_TRACE
+#include <trace/events/rcu.h>
+#endif /* #else #ifdef CONFIG_RCU_TRACE */
 
-/* Definition for rcupdate control block. */
-static struct rcu_ctrlblk rcu_sched_ctrlblk = {
-	.donetail	= &rcu_sched_ctrlblk.rcucblist,
-	.curtail	= &rcu_sched_ctrlblk.rcucblist,
-};
+#include "rcu.h"
 
-static struct rcu_ctrlblk rcu_bh_ctrlblk = {
-	.donetail	= &rcu_bh_ctrlblk.rcucblist,
-	.curtail	= &rcu_bh_ctrlblk.rcucblist,
-};
+/* Forward declarations for rcutiny_plugin.h. */
+struct rcu_ctrlblk;
+static void invoke_rcu_callbacks(void);
+static void __rcu_process_callbacks(struct rcu_ctrlblk *rcp);
+static void rcu_process_callbacks(struct softirq_action *unused);
+static void __call_rcu(struct rcu_head *head,
+		       void (*func)(struct rcu_head *rcu),
+		       struct rcu_ctrlblk *rcp);
 
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
-int rcu_scheduler_active __read_mostly;
-EXPORT_SYMBOL_GPL(rcu_scheduler_active);
-#endif /* #ifdef CONFIG_DEBUG_LOCK_ALLOC */
+#include "rcutiny_plugin.h"
 
 #ifdef CONFIG_NO_HZ
 
@@ -86,22 +81,17 @@ void rcu_exit_nohz(void)
 #endif /* #ifdef CONFIG_NO_HZ */
 
 /*
- * Helper function for rcu_qsctr_inc() and rcu_bh_qsctr_inc().
- * Also disable irqs to avoid confusion due to interrupt handlers
+ * Helper function for rcu_sched_qs() and rcu_bh_qs().
+ * Also irqs are disabled to avoid confusion due to interrupt handlers
  * invoking call_rcu().
  */
 static int rcu_qsctr_help(struct rcu_ctrlblk *rcp)
 {
-	unsigned long flags;
-
-	local_irq_save(flags);
 	if (rcp->rcucblist != NULL &&
 	    rcp->donetail != rcp->curtail) {
 		rcp->donetail = rcp->curtail;
-		local_irq_restore(flags);
 		return 1;
 	}
-	local_irq_restore(flags);
 
 	return 0;
 }
@@ -113,9 +103,13 @@ static int rcu_qsctr_help(struct rcu_ctrlblk *rcp)
  */
 void rcu_sched_qs(int cpu)
 {
+	unsigned long flags;
+
+	local_irq_save(flags);
 	if (rcu_qsctr_help(&rcu_sched_ctrlblk) +
 	    rcu_qsctr_help(&rcu_bh_ctrlblk))
-		raise_softirq(RCU_SOFTIRQ);
+		invoke_rcu_callbacks();
+	local_irq_restore(flags);
 }
 
 /*
@@ -123,8 +117,12 @@ void rcu_sched_qs(int cpu)
  */
 void rcu_bh_qs(int cpu)
 {
+	unsigned long flags;
+
+	local_irq_save(flags);
 	if (rcu_qsctr_help(&rcu_bh_ctrlblk))
-		raise_softirq(RCU_SOFTIRQ);
+		invoke_rcu_callbacks();
+	local_irq_restore(flags);
 }
 
 /*
@@ -140,47 +138,60 @@ void rcu_check_callbacks(int cpu, int user)
 		rcu_sched_qs(cpu);
 	else if (!in_softirq())
 		rcu_bh_qs(cpu);
+	rcu_preempt_check_callbacks();
 }
 
 /*
- * Helper function for rcu_process_callbacks() that operates on the
- * specified rcu_ctrlkblk structure.
+ * Invoke the RCU callbacks on the specified rcu_ctrlkblk structure
+ * whose grace period has elapsed.
  */
 static void __rcu_process_callbacks(struct rcu_ctrlblk *rcp)
 {
+	char *rn = NULL;
 	struct rcu_head *next, *list;
 	unsigned long flags;
+	RCU_TRACE(int cb_count = 0);
 
 	/* If no RCU callbacks ready to invoke, just return. */
-	if (&rcp->rcucblist == rcp->donetail)
+	if (&rcp->rcucblist == rcp->donetail) {
+		RCU_TRACE(trace_rcu_batch_start(rcp->name, 0, -1));
+		RCU_TRACE(trace_rcu_batch_end(rcp->name, 0));
 		return;
+	}
 
 	/* Move the ready-to-invoke callbacks to a local list. */
 	local_irq_save(flags);
+	RCU_TRACE(trace_rcu_batch_start(rcp->name, 0, -1));
 	list = rcp->rcucblist;
 	rcp->rcucblist = *rcp->donetail;
 	*rcp->donetail = NULL;
 	if (rcp->curtail == rcp->donetail)
 		rcp->curtail = &rcp->rcucblist;
+	rcu_preempt_remove_callbacks(rcp);
 	rcp->donetail = &rcp->rcucblist;
 	local_irq_restore(flags);
 
 	/* Invoke the callbacks on the local list. */
+	RCU_TRACE(rn = rcp->name);
 	while (list) {
 		next = list->next;
 		prefetch(next);
-		list->func(list);
+		debug_rcu_head_unqueue(list);
+		local_bh_disable();
+		__rcu_reclaim(rn, list);
+		local_bh_enable();
 		list = next;
+		RCU_TRACE(cb_count++);
 	}
+	RCU_TRACE(rcu_trace_sub_qlen(rcp, cb_count));
+	RCU_TRACE(trace_rcu_batch_end(rcp->name, cb_count));
 }
 
-/*
- * Invoke any callbacks whose grace period has completed.
- */
 static void rcu_process_callbacks(struct softirq_action *unused)
 {
 	__rcu_process_callbacks(&rcu_sched_ctrlblk);
 	__rcu_process_callbacks(&rcu_bh_ctrlblk);
+	rcu_preempt_process_callbacks();
 }
 
 /*
@@ -211,25 +222,27 @@ static void __call_rcu(struct rcu_head *head,
 {
 	unsigned long flags;
 
+	debug_rcu_head_queue(head);
 	head->func = func;
 	head->next = NULL;
 
 	local_irq_save(flags);
 	*rcp->curtail = head;
 	rcp->curtail = &head->next;
+	RCU_TRACE(rcp->qlen++);
 	local_irq_restore(flags);
 }
 
 /*
- * Post an RCU callback to be invoked after the end of an RCU grace
+ * Post an RCU callback to be invoked after the end of an RCU-sched grace
  * period.  But since we have but one CPU, that would be after any
  * quiescent state.
  */
-void call_rcu(struct rcu_head *head, void (*func)(struct rcu_head *rcu))
+void call_rcu_sched(struct rcu_head *head, void (*func)(struct rcu_head *rcu))
 {
 	__call_rcu(head, func, &rcu_sched_ctrlblk);
 }
-EXPORT_SYMBOL_GPL(call_rcu);
+EXPORT_SYMBOL_GPL(call_rcu_sched);
 
 /*
  * Post an RCU bottom-half callback to be invoked after any subsequent
@@ -240,52 +253,3 @@ void call_rcu_bh(struct rcu_head *head, void (*func)(struct rcu_head *rcu))
 	__call_rcu(head, func, &rcu_bh_ctrlblk);
 }
 EXPORT_SYMBOL_GPL(call_rcu_bh);
-
-void rcu_barrier(void)
-{
-	struct rcu_synchronize rcu;
-
-	init_rcu_head_on_stack(&rcu.head);
-	init_completion(&rcu.completion);
-	/* Will wake me after RCU finished. */
-	call_rcu(&rcu.head, wakeme_after_rcu);
-	/* Wait for it. */
-	wait_for_completion(&rcu.completion);
-	destroy_rcu_head_on_stack(&rcu.head);
-}
-EXPORT_SYMBOL_GPL(rcu_barrier);
-
-void rcu_barrier_bh(void)
-{
-	struct rcu_synchronize rcu;
-
-	init_rcu_head_on_stack(&rcu.head);
-	init_completion(&rcu.completion);
-	/* Will wake me after RCU finished. */
-	call_rcu_bh(&rcu.head, wakeme_after_rcu);
-	/* Wait for it. */
-	wait_for_completion(&rcu.completion);
-	destroy_rcu_head_on_stack(&rcu.head);
-}
-EXPORT_SYMBOL_GPL(rcu_barrier_bh);
-
-void rcu_barrier_sched(void)
-{
-	struct rcu_synchronize rcu;
-
-	init_rcu_head_on_stack(&rcu.head);
-	init_completion(&rcu.completion);
-	/* Will wake me after RCU finished. */
-	call_rcu_sched(&rcu.head, wakeme_after_rcu);
-	/* Wait for it. */
-	wait_for_completion(&rcu.completion);
-	destroy_rcu_head_on_stack(&rcu.head);
-}
-EXPORT_SYMBOL_GPL(rcu_barrier_sched);
-
-void __init rcu_init(void)
-{
-	open_softirq(RCU_SOFTIRQ, rcu_process_callbacks);
-}
-
-#include "rcutiny_plugin.h"

@@ -90,12 +90,6 @@ static const u16 LDO2_VSEL_table[] = {
 	3000, 3100, 3200, 3300,
 };
 
-static unsigned int num_voltages[] = {ARRAY_SIZE(VDCDCx_VSEL_table),
-				ARRAY_SIZE(VDCDCx_VSEL_table),
-				ARRAY_SIZE(VDCDCx_VSEL_table),
-				ARRAY_SIZE(LDO1_VSEL_table),
-				ARRAY_SIZE(LDO2_VSEL_table)};
-
 struct tps_info {
 	const char *name;
 	unsigned min_uV;
@@ -348,13 +342,13 @@ static int tps6507x_pmic_dcdc_get_voltage(struct regulator_dev *dev)
 		if (tps->info[dcdc]->defdcdc_default)
 			reg = TPS6507X_REG_DEFDCDC2_HIGH;
 		else
-		reg = TPS6507X_REG_DEFDCDC2_LOW;
+			reg = TPS6507X_REG_DEFDCDC2_LOW;
 		break;
 	case TPS6507X_DCDC_3:
 		if (tps->info[dcdc]->defdcdc_default)
 			reg = TPS6507X_REG_DEFDCDC3_HIGH;
 		else
-		reg = TPS6507X_REG_DEFDCDC3_LOW;
+			reg = TPS6507X_REG_DEFDCDC3_LOW;
 		break;
 	default:
 		return -EINVAL;
@@ -369,7 +363,8 @@ static int tps6507x_pmic_dcdc_get_voltage(struct regulator_dev *dev)
 }
 
 static int tps6507x_pmic_dcdc_set_voltage(struct regulator_dev *dev,
-				int min_uV, int max_uV)
+					  int min_uV, int max_uV,
+					  unsigned *selector)
 {
 	struct tps6507x_pmic *tps = rdev_get_drvdata(dev);
 	int data, vsel, dcdc = rdev_get_id(dev);
@@ -383,13 +378,13 @@ static int tps6507x_pmic_dcdc_set_voltage(struct regulator_dev *dev,
 		if (tps->info[dcdc]->defdcdc_default)
 			reg = TPS6507X_REG_DEFDCDC2_HIGH;
 		else
-		reg = TPS6507X_REG_DEFDCDC2_LOW;
+			reg = TPS6507X_REG_DEFDCDC2_LOW;
 		break;
 	case TPS6507X_DCDC_3:
 		if (tps->info[dcdc]->defdcdc_default)
 			reg = TPS6507X_REG_DEFDCDC3_HIGH;
 		else
-		reg = TPS6507X_REG_DEFDCDC3_LOW;
+			reg = TPS6507X_REG_DEFDCDC3_LOW;
 		break;
 	default:
 		return -EINVAL;
@@ -414,6 +409,8 @@ static int tps6507x_pmic_dcdc_set_voltage(struct regulator_dev *dev,
 	/* write to the register in case we found a match */
 	if (vsel == tps->info[dcdc]->table_len)
 		return -EINVAL;
+
+	*selector = vsel;
 
 	data = tps6507x_pmic_reg_read(tps, reg);
 	if (data < 0)
@@ -450,7 +447,8 @@ static int tps6507x_pmic_ldo_get_voltage(struct regulator_dev *dev)
 }
 
 static int tps6507x_pmic_ldo_set_voltage(struct regulator_dev *dev,
-				int min_uV, int max_uV)
+					 int min_uV, int max_uV,
+					 unsigned *selector)
 {
 	struct tps6507x_pmic *tps = rdev_get_drvdata(dev);
 	int data, vsel, ldo = rdev_get_id(dev);
@@ -482,6 +480,8 @@ static int tps6507x_pmic_ldo_set_voltage(struct regulator_dev *dev,
 
 	if (vsel == tps->info[ldo]->table_len)
 		return -EINVAL;
+
+	*selector = vsel;
 
 	data = tps6507x_pmic_reg_read(tps, reg);
 	if (data < 0)
@@ -547,7 +547,6 @@ static __devinit
 int tps6507x_pmic_probe(struct platform_device *pdev)
 {
 	struct tps6507x_dev *tps6507x_dev = dev_get_drvdata(pdev->dev.parent);
-	static int desc_id;
 	struct tps_info *info = &tps6507x_pmic_regs[0];
 	struct regulator_init_data *init_data;
 	struct regulator_dev *rdev;
@@ -592,8 +591,8 @@ int tps6507x_pmic_probe(struct platform_device *pdev)
 		}
 
 		tps->desc[i].name = info->name;
-		tps->desc[i].id = desc_id++;
-		tps->desc[i].n_voltages = num_voltages[i];
+		tps->desc[i].id = i;
+		tps->desc[i].n_voltages = info->table_len;
 		tps->desc[i].ops = (i > TPS6507X_DCDC_3 ?
 		&tps6507x_pmic_ldo_ops : &tps6507x_pmic_dcdc_ops);
 		tps->desc[i].type = REGULATOR_VOLTAGE;
@@ -614,6 +613,7 @@ int tps6507x_pmic_probe(struct platform_device *pdev)
 	}
 
 	tps6507x_dev->pmic = tps;
+	platform_set_drvdata(pdev, tps6507x_dev);
 
 	return 0;
 
@@ -625,12 +625,6 @@ fail:
 	return error;
 }
 
-/**
- * tps6507x_remove - TPS6507x driver i2c remove handler
- * @client: i2c driver client device structure
- *
- * Unregister TPS driver as an i2c client device driver
- */
 static int __devexit tps6507x_pmic_remove(struct platform_device *pdev)
 {
 	struct tps6507x_dev *tps6507x_dev = platform_get_drvdata(pdev);

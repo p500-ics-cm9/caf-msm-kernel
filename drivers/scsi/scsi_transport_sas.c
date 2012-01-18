@@ -173,11 +173,7 @@ static void sas_smp_request(struct request_queue *q, struct Scsi_Host *shost,
 	int ret;
 	int (*handler)(struct Scsi_Host *, struct sas_rphy *, struct request *);
 
-	while (!blk_queue_plugged(q)) {
-		req = blk_fetch_request(q);
-		if (!req)
-			break;
-
+	while ((req = blk_fetch_request(q)) != NULL) {
 		spin_unlock_irq(q->queue_lock);
 
 		handler = to_sas_internal(shost->transportt)->f->smp_handler;
@@ -1549,8 +1545,14 @@ int sas_rphy_add(struct sas_rphy *rphy)
 
 	if (identify->device_type == SAS_END_DEVICE &&
 	    rphy->scsi_target_id != -1) {
-		scsi_scan_target(&rphy->dev, 0,
-				rphy->scsi_target_id, SCAN_WILD_CARD, 0);
+		int lun;
+
+		if (identify->target_port_protocols & SAS_PROTOCOL_SSP)
+			lun = SCAN_WILD_CARD;
+		else
+			lun = 0;
+
+		scsi_scan_target(&rphy->dev, 0, rphy->scsi_target_id, lun, 0);
 	}
 
 	return 0;

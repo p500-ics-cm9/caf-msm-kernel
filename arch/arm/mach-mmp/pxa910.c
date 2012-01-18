@@ -7,7 +7,6 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -20,7 +19,7 @@
 #include <mach/regs-apmu.h>
 #include <mach/cputype.h>
 #include <mach/irqs.h>
-#include <mach/gpio.h>
+#include <mach/gpio-pxa.h>
 #include <mach/dma.h>
 #include <mach/mfp.h>
 #include <mach/devices.h>
@@ -110,7 +109,8 @@ static APBC_CLK(pwm2, PXA910_PWM2, 1, 13000000);
 static APBC_CLK(pwm3, PXA910_PWM3, 1, 13000000);
 static APBC_CLK(pwm4, PXA910_PWM4, 1, 13000000);
 
-static APMU_CLK(nand, NAND, 0x01db, 208000000);
+static APMU_CLK(nand, NAND, 0x19b, 156000000);
+static APMU_CLK(u2o, USB, 0x1b, 480000000);
 
 /* device and clock bindings */
 static struct clk_lookup pxa910_clkregs[] = {
@@ -123,6 +123,7 @@ static struct clk_lookup pxa910_clkregs[] = {
 	INIT_CLKREG(&clk_pwm3, "pxa910-pwm.2", NULL),
 	INIT_CLKREG(&clk_pwm4, "pxa910-pwm.3", NULL),
 	INIT_CLKREG(&clk_nand, "pxa3xx-nand", NULL),
+	INIT_CLKREG(&clk_u2o, "pxa-u2o", "U2OCLK"),
 };
 
 static int __init pxa910_init(void)

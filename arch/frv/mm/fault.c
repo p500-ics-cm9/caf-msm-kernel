@@ -258,7 +258,7 @@ asmlinkage void do_page_fault(int datammu, unsigned long esr0, unsigned long ear
  out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (!user_mode(__frame))
-	goto no_context;
+		goto no_context;
 	pagefault_out_of_memory();
 	return;
 

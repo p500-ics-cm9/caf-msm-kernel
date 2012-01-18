@@ -18,6 +18,7 @@
 /* #define VERBOSE_DEBUG */
 
 #include <linux/kernel.h>
+#include <linux/sched.h>
 #include <linux/interrupt.h>
 #include <linux/device.h>
 #include <linux/delay.h>
@@ -109,11 +110,15 @@ struct gs_port {
 	wait_queue_head_t	close_wait;	/* wait for last close */
 
 	struct list_head	read_pool;
+	int read_started;
+	int read_allocated;
 	struct list_head	read_queue;
 	unsigned		n_read;
 	struct work_struct	push;
 
 	struct list_head	write_pool;
+	int write_started;
+	int write_allocated;
 	struct gs_buf		port_write_buf;
 	wait_queue_head_t	drain_wait;	/* wait while writes drain */
 
@@ -370,6 +375,9 @@ __acquires(&port->port_lock)
 		struct usb_request	*req;
 		int			len;
 
+		if (port->write_started >= QUEUE_SIZE)
+			break;
+
 		req = list_entry(pool->next, struct usb_request, list);
 		len = gs_send_packet(port, req->buf, TX_BUF_SIZE);
 		if (len == 0) {
@@ -419,6 +427,8 @@ __acquires(&port->port_lock)
 		}
 		prev_len = req->length;
 
+		port->write_started++;
+
 		/* abort immediately after disconnect */
 		if (!port->port_usb)
 			break;
@@ -440,7 +450,6 @@ __acquires(&port->port_lock)
 {
 	struct list_head	*pool = &port->read_pool;
 	struct usb_ep		*out = port->port_usb->out;
-	unsigned		started = 0;
 
 	while (!list_empty(pool)) {
 		struct usb_request	*req;
@@ -450,6 +459,9 @@ __acquires(&port->port_lock)
 		/* no more rx if closed */
 		tty = port->port_tty;
 		if (!tty)
+			break;
+
+		if (port->read_started >= QUEUE_SIZE)
 			break;
 
 		req = list_entry(pool->next, struct usb_request, list);
@@ -469,13 +481,13 @@ __acquires(&port->port_lock)
 			list_add(&req->list, pool);
 			break;
 		}
-		started++;
+		port->read_started++;
 
 		/* abort immediately after disconnect */
 		if (!port->port_usb)
 			break;
 	}
-	return started;
+	return port->read_started;
 }
 
 /*
@@ -557,20 +569,14 @@ static void gs_rx_push(struct work_struct *w)
 		}
 recycle:
 		list_move(&req->list, &port->read_pool);
+		port->read_started--;
 	}
 
-	/* Push from tty to ldisc; this is immediate with low_latency, and
-	 * may trigger callbacks to this driver ... so drop the spinlock.
+	/* Push from tty to ldisc; without low_latency set this is handled by
+	 * a workqueue, so we won't get callbacks and can hold port_lock
 	 */
-	if (tty && do_push) {
-		spin_unlock_irq(&port->port_lock);
+	if (tty && do_push)
 		tty_flip_buffer_push(tty);
-		wake_up_interruptible(&tty->read_wait);
-		spin_lock_irq(&port->port_lock);
-
-		/* tty may have been closed */
-		tty = port->port_tty;
-	}
 
 
 	/* We want our data queue to become empty ASAP, keeping data
@@ -617,6 +623,7 @@ static void gs_write_complete(struct usb_ep *ep, struct usb_request *req)
 
 	spin_lock_irqsave(&port->port_lock, flags);
 	list_add(&req->list, &port->write_pool);
+	port->write_started--;
 
 	switch (req->status) {
 	default:
@@ -639,7 +646,8 @@ static void gs_write_complete(struct usb_ep *ep, struct usb_request *req)
 	spin_unlock_irqrestore(&port->port_lock, flags);
 }
 
-static void gs_free_requests(struct usb_ep *ep, struct list_head *head)
+static void gs_free_requests(struct usb_ep *ep, struct list_head *head,
+							 int *allocated)
 {
 	struct usb_request	*req;
 
@@ -647,26 +655,31 @@ static void gs_free_requests(struct usb_ep *ep, struct list_head *head)
 		req = list_entry(head->next, struct usb_request, list);
 		list_del(&req->list);
 		gs_free_req(ep, req);
+		if (allocated)
+			(*allocated)--;
 	}
 }
 
 static int gs_alloc_requests(struct usb_ep *ep, struct list_head *head,
-		int num, int size,
-		void (*fn)(struct usb_ep *, struct usb_request *))
+		void (*fn)(struct usb_ep *, struct usb_request *),
+		int *allocated)
 {
 	int			i;
 	struct usb_request	*req;
+	int n = allocated ? QUEUE_SIZE - *allocated : QUEUE_SIZE;
 
 	/* Pre-allocate up to QUEUE_SIZE transfers, but if we can't
 	 * do quite that many this time, don't fail ... we just won't
 	 * be as speedy as we might otherwise be.
 	 */
-	for (i = 0; i < num; i++) {
-		req = gs_alloc_req(ep, size, GFP_ATOMIC);
+	for (i = 0; i < n; i++) {
+		req = gs_alloc_req(ep, ep->maxpacket, GFP_ATOMIC);
 		if (!req)
 			return list_empty(head) ? -ENOMEM : 0;
 		req->complete = fn;
 		list_add_tail(&req->list, head);
+		if (allocated)
+			(*allocated)++;
 	}
 	return 0;
 }
@@ -693,15 +706,15 @@ static int gs_start_io(struct gs_port *port)
 	 * configurations may use different endpoints with a given port;
 	 * and high speed vs full speed changes packet sizes too.
 	 */
-	status = gs_alloc_requests(ep, head, RX_QUEUE_SIZE,
-			RX_BUF_SIZE, gs_read_complete);
+	status = gs_alloc_requests(ep, head, gs_read_complete,
+		&port->read_allocated);
 	if (status)
 		return status;
 
 	status = gs_alloc_requests(port->port_usb->in, &port->write_pool,
-			TX_QUEUE_SIZE, TX_BUF_SIZE, gs_write_complete);
+			gs_write_complete, &port->write_allocated);
 	if (status) {
-		gs_free_requests(ep, head);
+		gs_free_requests(ep, head, &port->read_allocated);
 		return status;
 	}
 
@@ -713,8 +726,9 @@ static int gs_start_io(struct gs_port *port)
 	if (started) {
 		tty_wakeup(port->port_tty);
 	} else {
-		gs_free_requests(ep, head);
-		gs_free_requests(port->port_usb->in, &port->write_pool);
+		gs_free_requests(ep, head, &port->read_allocated);
+		gs_free_requests(port->port_usb->in, &port->write_pool,
+			&port->write_allocated);
 		status = -EIO;
 	}
 
@@ -811,13 +825,6 @@ static int gs_open(struct tty_struct *tty, struct file *file)
 
 	port->open_count = 1;
 	port->openclose = false;
-
-	/* low_latency means ldiscs work is carried in the same context
-	 * of tty_flip_buffer_push. The same can be called from IRQ with
-	 * low_latency = 0. But better to use a dedicated worker thread
-	 * to push the data.
-	 */
-	tty->low_latency = 1;
 
 	/* if connected, start the I/O stream */
 	if (port->port_usb) {
@@ -1348,12 +1355,12 @@ int gserial_connect(struct gserial *gser, u8 port_num)
 	port = ports[port_num].port;
 
 	/* activate the endpoints */
-	status = usb_ep_enable(gser->in, gser->in_desc);
+	status = usb_ep_enable(gser->in);
 	if (status < 0)
 		return status;
 	gser->in->driver_data = port;
 
-	status = usb_ep_enable(gser->out, gser->out_desc);
+	status = usb_ep_enable(gser->out);
 	if (status < 0)
 		goto fail_out;
 	gser->out->driver_data = port;
@@ -1438,8 +1445,12 @@ void gserial_disconnect(struct gserial *gser)
 	spin_lock_irqsave(&port->port_lock, flags);
 	if (port->open_count == 0 && !port->openclose)
 		gs_buf_free(&port->port_write_buf);
-	gs_free_requests(gser->out, &port->read_pool);
-	gs_free_requests(gser->out, &port->read_queue);
-	gs_free_requests(gser->in, &port->write_pool);
+	gs_free_requests(gser->out, &port->read_pool, NULL);
+	gs_free_requests(gser->out, &port->read_queue, NULL);
+	gs_free_requests(gser->in, &port->write_pool, NULL);
+
+	port->read_allocated = port->read_started =
+		port->write_allocated = port->write_started = 0;
+
 	spin_unlock_irqrestore(&port->port_lock, flags);
 }

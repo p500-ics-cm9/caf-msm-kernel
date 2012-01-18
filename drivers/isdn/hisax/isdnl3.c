@@ -66,7 +66,7 @@ static char *strL3Event[] =
 	"EV_TIMEOUT",
 };
 
-static void
+static __printf(2, 3) void
 l3m_debug(struct FsmInst *fi, char *fmt, ...)
 {
 	va_list args;

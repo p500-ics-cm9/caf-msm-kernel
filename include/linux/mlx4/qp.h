@@ -54,7 +54,8 @@ enum mlx4_qp_optpar {
 	MLX4_QP_OPTPAR_RETRY_COUNT		= 1 << 12,
 	MLX4_QP_OPTPAR_RNR_RETRY		= 1 << 13,
 	MLX4_QP_OPTPAR_ACK_TIMEOUT		= 1 << 14,
-	MLX4_QP_OPTPAR_SCHED_QUEUE		= 1 << 16
+	MLX4_QP_OPTPAR_SCHED_QUEUE		= 1 << 16,
+	MLX4_QP_OPTPAR_COUNTER_INDEX		= 1 << 20
 };
 
 enum mlx4_qp_state {
@@ -74,6 +75,7 @@ enum {
 	MLX4_QP_ST_UC				= 0x1,
 	MLX4_QP_ST_RD				= 0x2,
 	MLX4_QP_ST_UD				= 0x3,
+	MLX4_QP_ST_XRC				= 0x6,
 	MLX4_QP_ST_MLX				= 0x7
 };
 
@@ -99,7 +101,7 @@ struct mlx4_qp_path {
 	u8			fl;
 	u8			reserved1[2];
 	u8			pkey_index;
-	u8			reserved2;
+	u8			counter_index;
 	u8			grh_mylmc;
 	__be16			rlid;
 	u8			ackto;
@@ -109,10 +111,10 @@ struct mlx4_qp_path {
 	__be32			tclass_flowlabel;
 	u8			rgid[16];
 	u8			sched_queue;
-	u8			snooper_flags;
+	u8			vlan_index;
 	u8			reserved3[2];
-	u8			counter_index;
-	u8			reserved4[7];
+	u8			reserved4[2];
+	u8			dmac[6];
 };
 
 struct mlx4_qp_context {
@@ -136,7 +138,7 @@ struct mlx4_qp_context {
 	__be32			ssn;
 	__be32			params2;
 	__be32			rnr_nextrecvpsn;
-	__be32			srcd;
+	__be32			xrcd;
 	__be32			cqn_recv;
 	__be64			db_rec_addr;
 	__be32			qkey;
@@ -166,6 +168,7 @@ enum {
 	MLX4_WQE_CTRL_TCP_UDP_CSUM	= 1 << 5,
 	MLX4_WQE_CTRL_INS_VLAN		= 1 << 6,
 	MLX4_WQE_CTRL_STRONG_ORDER	= 1 << 7,
+	MLX4_WQE_CTRL_FORCE_LOOPBACK	= 1 << 0,
 };
 
 struct mlx4_wqe_ctrl_seg {
@@ -219,7 +222,8 @@ struct mlx4_wqe_datagram_seg {
 	__be32			av[8];
 	__be32			dqpn;
 	__be32			qkey;
-	__be32			reservd[2];
+	__be16			vlan;
+	u8			mac[6];
 };
 
 struct mlx4_wqe_lso_seg {
@@ -300,6 +304,7 @@ struct mlx4_wqe_data_seg {
 
 enum {
 	MLX4_INLINE_ALIGN	= 64,
+	MLX4_INLINE_SEG		= 1 << 31,
 };
 
 struct mlx4_wqe_inline_seg {

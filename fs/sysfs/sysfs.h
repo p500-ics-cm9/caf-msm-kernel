@@ -9,15 +9,20 @@
  */
 
 #include <linux/lockdep.h>
+#include <linux/kobject_ns.h>
 #include <linux/fs.h>
+#include <linux/rbtree.h>
 
 struct sysfs_open_dirent;
 
 /* type-specific structures for sysfs_dirent->s_* union members */
 struct sysfs_elem_dir {
 	struct kobject		*kobj;
-	/* children list starts here and goes through sd->s_sibling */
-	struct sysfs_dirent	*children;
+
+	unsigned long		subdirs;
+
+	struct rb_root		inode_tree;
+	struct rb_root		name_tree;
 };
 
 struct sysfs_elem_symlink {
@@ -55,8 +60,15 @@ struct sysfs_dirent {
 	struct lockdep_map	dep_map;
 #endif
 	struct sysfs_dirent	*s_parent;
-	struct sysfs_dirent	*s_sibling;
 	const char		*s_name;
+
+	struct rb_node		inode_node;
+	struct rb_node		name_node;
+
+	union {
+		struct completion	*completion;
+		struct sysfs_dirent	*removed_list;
+	} u;
 
 	const void		*s_ns; /* namespace tag */
 	union {
@@ -135,7 +147,7 @@ struct sysfs_addrm_cxt {
  * instance).
  */
 struct sysfs_super_info {
-	const void *ns[KOBJ_NS_TYPES];
+	void *ns[KOBJ_NS_TYPES];
 };
 #define sysfs_info(SB) ((struct sysfs_super_info *)(SB->s_fs_info))
 extern struct sysfs_dirent sysfs_root;
@@ -198,7 +210,7 @@ static inline void __sysfs_put(struct sysfs_dirent *sd)
  * inode.c
  */
 struct inode *sysfs_get_inode(struct super_block *sb, struct sysfs_dirent *sd);
-void sysfs_delete_inode(struct inode *inode);
+void sysfs_evict_inode(struct inode *inode);
 int sysfs_sd_setattr(struct sysfs_dirent *sd, struct iattr *iattr);
 int sysfs_permission(struct inode *inode, int mask);
 int sysfs_setattr(struct dentry *dentry, struct iattr *iattr);

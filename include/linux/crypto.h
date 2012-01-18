@@ -17,7 +17,7 @@
 #ifndef _LINUX_CRYPTO_H
 #define _LINUX_CRYPTO_H
 
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
@@ -70,6 +70,11 @@
  */
 
 #define CRYPTO_ALG_TESTED		0x00000400
+
+/*
+ * Set if the algorithm is an instance that is build from templates.
+ */
+#define CRYPTO_ALG_INSTANCE		0x00000800
 
 /*
  * Transform masks and values (for crt_flags).

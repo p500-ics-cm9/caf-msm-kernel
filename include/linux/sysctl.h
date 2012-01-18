@@ -436,7 +436,7 @@ enum {
 	NET_IPV4_ROUTE_MAX_SIZE=5,
 	NET_IPV4_ROUTE_GC_MIN_INTERVAL=6,
 	NET_IPV4_ROUTE_GC_TIMEOUT=7,
-	NET_IPV4_ROUTE_GC_INTERVAL=8,
+	NET_IPV4_ROUTE_GC_INTERVAL=8, /* obsolete since 2.6.38 */
 	NET_IPV4_ROUTE_REDIRECT_LOAD=9,
 	NET_IPV4_ROUTE_REDIRECT_NUMBER=10,
 	NET_IPV4_ROUTE_REDIRECT_SILENCE=11,
@@ -931,6 +931,7 @@ enum
 
 #ifdef __KERNEL__
 #include <linux/list.h>
+#include <linux/rcupdate.h>
 
 /* For the /proc/sys support */
 struct ctl_table;
@@ -1038,10 +1039,15 @@ struct ctl_table_root {
    struct ctl_table trees. */
 struct ctl_table_header
 {
-	struct ctl_table *ctl_table;
-	struct list_head ctl_entry;
-	int used;
-	int count;
+	union {
+		struct {
+			struct ctl_table *ctl_table;
+			struct list_head ctl_entry;
+			int used;
+			int count;
+		};
+		struct rcu_head rcu;
+	};
 	struct completion *unregistering;
 	struct ctl_table *ctl_table_arg;
 	struct ctl_table_root *root;

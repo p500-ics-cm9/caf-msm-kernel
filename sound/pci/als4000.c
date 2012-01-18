@@ -763,9 +763,9 @@ static void snd_als4000_configure(struct snd_sb *chip)
 	/* SPECS_PAGE: 39 */
 	for (i = ALS4K_GCR91_DMA0_ADDR; i <= ALS4K_GCR96_DMA3_MODE_COUNT; ++i)
 		snd_als4k_gcr_write(chip, i, 0);
-	
+	/* enable burst mode to prevent dropouts during high PCI bus usage */
 	snd_als4k_gcr_write(chip, ALS4K_GCR99_DMA_EMULATION_CTRL,
-		snd_als4k_gcr_read(chip, ALS4K_GCR99_DMA_EMULATION_CTRL));
+		(snd_als4k_gcr_read(chip, ALS4K_GCR99_DMA_EMULATION_CTRL) & ~0x07) | 0x04);
 	spin_unlock_irq(&chip->reg_lock);
 }
 
@@ -931,8 +931,9 @@ static int __devinit snd_card_als4000_probe(struct pci_dev *pci,
 
 	if ((err = snd_mpu401_uart_new( card, 0, MPU401_HW_ALS4000,
 					iobase + ALS4K_IOB_30_MIDI_DATA,
-					MPU401_INFO_INTEGRATED,
-					pci->irq, 0, &chip->rmidi)) < 0) {
+					MPU401_INFO_INTEGRATED |
+					MPU401_INFO_IRQ_HOOK,
+					-1, &chip->rmidi)) < 0) {
 		printk(KERN_ERR "als4000: no MPU-401 device at 0x%lx?\n",
 				iobase + ALS4K_IOB_30_MIDI_DATA);
 		goto out_err;
@@ -1036,7 +1037,7 @@ static int snd_als4000_resume(struct pci_dev *pci)
 
 
 static struct pci_driver driver = {
-	.name = "ALS4000",
+	.name = KBUILD_MODNAME,
 	.id_table = snd_als4000_ids,
 	.probe = snd_card_als4000_probe,
 	.remove = __devexit_p(snd_card_als4000_remove),

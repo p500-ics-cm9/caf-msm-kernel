@@ -154,8 +154,10 @@ static int __devinit lq035q1_spidev_probe(struct spi_device *spi)
 
 	ret = lq035q1_control(spi, LQ035_SHUT_CTL, LQ035_ON);
 	ret |= lq035q1_control(spi, LQ035_DRIVER_OUTPUT_CTL, ctl->mode);
-	if (ret)
+	if (ret) {
+		kfree(ctl);
 		return ret;
+	}
 
 	spi_set_drvdata(spi, ctl);
 
@@ -693,7 +695,7 @@ static int __devinit bfin_lq035q1_probe(struct platform_device *pdev)
 		goto out7;
 	}
 
-	ret = request_irq(info->irq, bfin_lq035q1_irq_error, IRQF_DISABLED,
+	ret = request_irq(info->irq, bfin_lq035q1_irq_error, 0,
 			DRIVER_NAME" PPI ERROR", info);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "unable to request PPI ERROR IRQ\n");

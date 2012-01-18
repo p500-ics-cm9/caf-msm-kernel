@@ -216,14 +216,14 @@ static struct resource db1200_ide_res[] = {
 	}
 };
 
-static u64 ide_dmamask = DMA_32BIT_MASK;
+static u64 ide_dmamask = DMA_BIT_MASK(32);
 
 static struct platform_device db1200_ide_dev = {
 	.name		= "au1200-ide",
 	.id		= 0,
 	.dev = {
 		.dma_mask 		= &ide_dmamask,
-		.coherent_dma_mask	= DMA_32BIT_MASK,
+		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 	.num_resources	= ARRAY_SIZE(db1200_ide_res),
 	.resource	= db1200_ide_res,
@@ -385,12 +385,12 @@ static struct au1550_spi_info db1200_spi_platdata = {
 	.activate_cs	= db1200_spi_cs_en,
 };
 
-static u64 spi_dmamask = DMA_32BIT_MASK;
+static u64 spi_dmamask = DMA_BIT_MASK(32);
 
 static struct platform_device db1200_spi_dev = {
 	.dev	= {
 		.dma_mask		= &spi_dmamask,
-		.coherent_dma_mask	= DMA_32BIT_MASK,
+		.coherent_dma_mask	= DMA_BIT_MASK(32),
 		.platform_data		= &db1200_spi_platdata,
 	},
 	.name		= "au1550-spi",
@@ -422,11 +422,28 @@ static struct resource au1200_psc1_res[] = {
 	},
 };
 
+/* AC97 or I2S device */
 static struct platform_device db1200_audio_dev = {
 	/* name assigned later based on switch setting */
 	.id		= 1,	/* PSC ID */
 	.num_resources	= ARRAY_SIZE(au1200_psc1_res),
 	.resource	= au1200_psc1_res,
+};
+
+/* DB1200 ASoC card device */
+static struct platform_device db1200_sound_dev = {
+	/* name assigned later based on switch setting */
+	.id		= 1,	/* PSC ID */
+};
+
+static struct platform_device db1200_stac_dev = {
+	.name		= "ac97-codec",
+	.id		= 1,	/* on PSC1 */
+};
+
+static struct platform_device db1200_audiodma_dev = {
+	.name		= "au1xpsc-pcm",
+	.id		= 1,	/* PSC ID */
 };
 
 static struct platform_device *db1200_devs[] __initdata = {
@@ -435,7 +452,10 @@ static struct platform_device *db1200_devs[] __initdata = {
 	&db1200_eth_dev,
 	&db1200_rtc_dev,
 	&db1200_nand_dev,
+	&db1200_audiodma_dev,
 	&db1200_audio_dev,
+	&db1200_stac_dev,
+	&db1200_sound_dev,
 };
 
 static int __init db1200_dev_init(void)
@@ -495,10 +515,12 @@ static int __init db1200_dev_init(void)
 	if (sw == BCSR_SWITCHES_DIP_8) {
 		bcsr_mod(BCSR_RESETS, 0, BCSR_RESETS_PSC1MUX);
 		db1200_audio_dev.name = "au1xpsc_i2s";
+		db1200_sound_dev.name = "db1200-i2s";
 		printk(KERN_INFO " S6.7 ON : PSC1 mode I2S\n");
 	} else {
 		bcsr_mod(BCSR_RESETS, BCSR_RESETS_PSC1MUX, 0);
 		db1200_audio_dev.name = "au1xpsc_ac97";
+		db1200_sound_dev.name = "db1200-ac97";
 		printk(KERN_INFO " S6.7 OFF: PSC1 mode AC97\n");
 	}
 

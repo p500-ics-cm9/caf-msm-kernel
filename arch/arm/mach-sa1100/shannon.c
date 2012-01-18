@@ -82,9 +82,7 @@ static void __init shannon_map_io(void)
 }
 
 MACHINE_START(SHANNON, "Shannon (AKA: Tuxscreen)")
-	.phys_io	= 0x80000000,
-	.io_pg_offst	= ((0xf8000000) >> 18) & 0xfffc,
-	.boot_params	= 0xc0000100,
+	.atag_offset	= 0x100,
 	.map_io		= shannon_map_io,
 	.init_irq	= sa1100_init_irq,
 	.timer		= &sa1100_timer,

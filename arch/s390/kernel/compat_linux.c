@@ -25,7 +25,6 @@
 #include <linux/resource.h>
 #include <linux/times.h>
 #include <linux/smp.h>
-#include <linux/smp_lock.h>
 #include <linux/sem.h>
 #include <linux/msg.h>
 #include <linux/shm.h>
@@ -61,12 +60,9 @@
 
 #include "compat_linux.h"
 
-long psw_user32_bits	= (PSW_BASE32_BITS | PSW_MASK_DAT | PSW_ASC_HOME |
-			   PSW_MASK_IO | PSW_MASK_EXT | PSW_MASK_MCHECK |
-			   PSW_MASK_PSTATE | PSW_DEFAULT_KEY);
-long psw32_user_bits	= (PSW32_BASE_BITS | PSW32_MASK_DAT | PSW32_ASC_HOME |
-			   PSW32_MASK_IO | PSW32_MASK_EXT | PSW32_MASK_MCHECK |
-			   PSW32_MASK_PSTATE);
+u32 psw32_user_bits = PSW32_MASK_DAT | PSW32_MASK_IO | PSW32_MASK_EXT |
+		      PSW32_DEFAULT_KEY | PSW32_MASK_BASE | PSW32_MASK_MCHECK |
+		      PSW32_MASK_PSTATE | PSW32_ASC_HOME;
  
 /* For this source file, we want overflow handling. */
 
@@ -366,12 +362,7 @@ asmlinkage long sys32_rt_sigprocmask(int how, compat_sigset_t __user *set,
 	if (set) {
 		if (copy_from_user (&s32, set, sizeof(compat_sigset_t)))
 			return -EFAULT;
-		switch (_NSIG_WORDS) {
-		case 4: s.sig[3] = s32.sig[6] | (((long)s32.sig[7]) << 32);
-		case 3: s.sig[2] = s32.sig[4] | (((long)s32.sig[5]) << 32);
-		case 2: s.sig[1] = s32.sig[2] | (((long)s32.sig[3]) << 32);
-		case 1: s.sig[0] = s32.sig[0] | (((long)s32.sig[1]) << 32);
-		}
+		s.sig[0] = s32.sig[0] | (((long)s32.sig[1]) << 32);
 	}
 	set_fs (KERNEL_DS);
 	ret = sys_rt_sigprocmask(how,
@@ -381,12 +372,8 @@ asmlinkage long sys32_rt_sigprocmask(int how, compat_sigset_t __user *set,
 	set_fs (old_fs);
 	if (ret) return ret;
 	if (oset) {
-		switch (_NSIG_WORDS) {
-		case 4: s32.sig[7] = (s.sig[3] >> 32); s32.sig[6] = s.sig[3];
-		case 3: s32.sig[5] = (s.sig[2] >> 32); s32.sig[4] = s.sig[2];
-		case 2: s32.sig[3] = (s.sig[1] >> 32); s32.sig[2] = s.sig[1];
-		case 1: s32.sig[1] = (s.sig[0] >> 32); s32.sig[0] = s.sig[0];
-		}
+		s32.sig[1] = (s.sig[0] >> 32);
+		s32.sig[0] = s.sig[0];
 		if (copy_to_user (oset, &s32, sizeof(compat_sigset_t)))
 			return -EFAULT;
 	}
@@ -405,12 +392,8 @@ asmlinkage long sys32_rt_sigpending(compat_sigset_t __user *set,
 	ret = sys_rt_sigpending((sigset_t __force __user *) &s, sigsetsize);
 	set_fs (old_fs);
 	if (!ret) {
-		switch (_NSIG_WORDS) {
-		case 4: s32.sig[7] = (s.sig[3] >> 32); s32.sig[6] = s.sig[3];
-		case 3: s32.sig[5] = (s.sig[2] >> 32); s32.sig[4] = s.sig[2];
-		case 2: s32.sig[3] = (s.sig[1] >> 32); s32.sig[2] = s.sig[1];
-		case 1: s32.sig[1] = (s.sig[0] >> 32); s32.sig[0] = s.sig[0];
-		}
+		s32.sig[1] = (s.sig[0] >> 32);
+		s32.sig[0] = s.sig[0];
 		if (copy_to_user (set, &s32, sizeof(compat_sigset_t)))
 			return -EFAULT;
 	}
@@ -436,7 +419,7 @@ sys32_rt_sigqueueinfo(int pid, int sig, compat_siginfo_t __user *uinfo)
  * sys32_execve() executes a new program after the asm stub has set
  * things up for us.  This should basically do what I want it to.
  */
-asmlinkage long sys32_execve(char __user *name, compat_uptr_t __user *argv,
+asmlinkage long sys32_execve(const char __user *name, compat_uptr_t __user *argv,
 			     compat_uptr_t __user *envp)
 {
 	struct pt_regs *regs = task_pt_regs(current);
@@ -570,7 +553,7 @@ static int cp_stat64(struct stat64_emu31 __user *ubuf, struct kstat *stat)
 	return copy_to_user(ubuf,&tmp,sizeof(tmp)) ? -EFAULT : 0; 
 }
 
-asmlinkage long sys32_stat64(char __user * filename, struct stat64_emu31 __user * statbuf)
+asmlinkage long sys32_stat64(const char __user * filename, struct stat64_emu31 __user * statbuf)
 {
 	struct kstat stat;
 	int ret = vfs_stat(filename, &stat);
@@ -579,7 +562,7 @@ asmlinkage long sys32_stat64(char __user * filename, struct stat64_emu31 __user 
 	return ret;
 }
 
-asmlinkage long sys32_lstat64(char __user * filename, struct stat64_emu31 __user * statbuf)
+asmlinkage long sys32_lstat64(const char __user * filename, struct stat64_emu31 __user * statbuf)
 {
 	struct kstat stat;
 	int ret = vfs_lstat(filename, &stat);
@@ -597,7 +580,7 @@ asmlinkage long sys32_fstat64(unsigned long fd, struct stat64_emu31 __user * sta
 	return ret;
 }
 
-asmlinkage long sys32_fstatat64(unsigned int dfd, char __user *filename,
+asmlinkage long sys32_fstatat64(unsigned int dfd, const char __user *filename,
 				struct stat64_emu31 __user* statbuf, int flag)
 {
 	struct kstat stat;
@@ -655,7 +638,7 @@ asmlinkage long sys32_read(unsigned int fd, char __user * buf, size_t count)
 	return sys_read(fd, buf, count);
 }
 
-asmlinkage long sys32_write(unsigned int fd, char __user * buf, size_t count)
+asmlinkage long sys32_write(unsigned int fd, const char __user * buf, size_t count)
 {
 	if ((compat_ssize_t) count < 0)
 		return -EINVAL; 

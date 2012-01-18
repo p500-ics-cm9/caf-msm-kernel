@@ -34,14 +34,19 @@ struct msm_dmov_cmd {
 	void *user;	/* Pointer for caller's reference */
 };
 
+#ifndef CONFIG_ARCH_MSM8X60
 void msm_dmov_enqueue_cmd(unsigned id, struct msm_dmov_cmd *cmd);
 void msm_dmov_enqueue_cmd_ext(unsigned id, struct msm_dmov_cmd *cmd);
 void msm_dmov_stop_cmd(unsigned id, struct msm_dmov_cmd *cmd, int graceful);
-void msm_dmov_flush(unsigned int id);
-int msm_dmov_exec_cmd(unsigned id, unsigned int crci_mask, unsigned int cmdptr);
-unsigned int msm_dmov_build_crci_mask(int n, ...);
-
-#define DMOV_CRCIS_PER_CONF 10
+int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
+#else
+static inline
+void msm_dmov_enqueue_cmd(unsigned id, struct msm_dmov_cmd *cmd) { }
+static inline
+void msm_dmov_stop_cmd(unsigned id, struct msm_dmov_cmd *cmd, int graceful) { }
+static inline
+int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr) { return -EIO; }
+#endif
 
 #define DMOV_ADDR(off, ch, sd) ((DMOV_SD_SIZE*(sd)) + (off) + ((ch) << 2))
 #define DMOV_SD0(off, ch) DMOV_ADDR(off, ch, 0)

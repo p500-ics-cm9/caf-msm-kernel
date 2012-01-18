@@ -115,7 +115,7 @@
  *
  * The CMX has special functions for conferences with one, two and more
  * members. It will allow different types of data flow. Receive and transmit
- * data to/form upper layer may be swithed on/off individually without loosing
+ * data to/form upper layer may be swithed on/off individually without losing
  * features of CMX, Tones and DTMF.
  *
  * Echo Cancellation: Sometimes we like to cancel echo from the interface.
@@ -127,9 +127,9 @@
  *
  * If all used features can be realized in hardware, and if transmit and/or
  * receive data ist disabled, the card may not send/receive any data at all.
- * Not receiving is usefull if only announcements are played. Not sending is
- * usefull if an answering machine records audio. Not sending and receiving is
- * usefull during most states of the call. If supported by hardware, tones
+ * Not receiving is useful if only announcements are played. Not sending is
+ * useful if an answering machine records audio. Not sending and receiving is
+ * useful during most states of the call. If supported by hardware, tones
  * will be played without cpu load. Small PBXs and NT-Mode applications will
  * not need expensive hardware when processing calls.
  *
@@ -1052,12 +1052,11 @@ dspcreate(struct channel_req *crq)
 	if (crq->protocol != ISDN_P_B_L2DSP
 	 && crq->protocol != ISDN_P_B_L2DSPHDLC)
 		return -EPROTONOSUPPORT;
-	ndsp = vmalloc(sizeof(struct dsp));
+	ndsp = vzalloc(sizeof(struct dsp));
 	if (!ndsp) {
 		printk(KERN_ERR "%s: vmalloc struct dsp failed\n", __func__);
 		return -ENOMEM;
 	}
-	memset(ndsp, 0, sizeof(struct dsp));
 	if (dsp_debug & DEBUG_DSP_CTRL)
 		printk(KERN_DEBUG "%s: creating new dsp instance\n", __func__);
 

@@ -52,7 +52,7 @@ __acquires(ohci->lock)
 		ohci_to_hcd(ohci)->self.bandwidth_isoc_reqs--;
 		if (ohci_to_hcd(ohci)->self.bandwidth_isoc_reqs == 0) {
 			if (quirk_amdiso(ohci))
-				quirk_amd_pll(1);
+				usb_amd_quirk_pll_enable();
 			if (quirk_amdprefetch(ohci))
 				sb800_prefetch(ohci, 0);
 		}
@@ -428,7 +428,7 @@ static struct ed *ed_get (
 		ed->type = usb_pipetype(pipe);
 
 		info |= (ep->desc.bEndpointAddress & ~USB_DIR_IN) << 7;
-		info |= le16_to_cpu(ep->desc.wMaxPacketSize) << 16;
+		info |= usb_endpoint_maxp(&ep->desc) << 16;
 		if (udev->speed == USB_SPEED_LOW)
 			info |= ED_LOWSPEED;
 		/* only control transfers store pids in tds */
@@ -444,7 +444,7 @@ static struct ed *ed_get (
 				ed->load = usb_calc_bus_time (
 					udev->speed, !is_out,
 					ed->type == PIPE_ISOCHRONOUS,
-					le16_to_cpu(ep->desc.wMaxPacketSize))
+					usb_endpoint_maxp(&ep->desc))
 						/ 1000;
 			}
 		}
@@ -686,7 +686,7 @@ static void td_submit_urb (
 		}
 		if (ohci_to_hcd(ohci)->self.bandwidth_isoc_reqs == 0) {
 			if (quirk_amdiso(ohci))
-				quirk_amd_pll(0);
+				usb_amd_quirk_pll_disable();
 			if (quirk_amdprefetch(ohci))
 				sb800_prefetch(ohci, 1);
 		}

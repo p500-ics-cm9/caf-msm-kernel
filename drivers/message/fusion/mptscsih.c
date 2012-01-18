@@ -664,6 +664,7 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 		u32	 log_info;
 
 		status = le16_to_cpu(pScsiReply->IOCStatus) & MPI_IOCSTATUS_MASK;
+
 		scsi_state = pScsiReply->SCSIState;
 		scsi_status = pScsiReply->SCSIStatus;
 		xfer_cnt = le32_to_cpu(pScsiReply->TransferCount);
@@ -738,13 +739,36 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 
 		case MPI_IOCSTATUS_SCSI_IOC_TERMINATED:		/* 0x004B */
 			if ( ioc->bus_type == SAS ) {
-				u16 ioc_status = le16_to_cpu(pScsiReply->IOCStatus);
-				if (ioc_status & MPI_IOCSTATUS_FLAG_LOG_INFO_AVAILABLE) {
-					if ((log_info & SAS_LOGINFO_MASK)
-					    == SAS_LOGINFO_NEXUS_LOSS) {
-						sc->result = (DID_BUS_BUSY << 16);
-						break;
-					}
+				u16 ioc_status =
+				    le16_to_cpu(pScsiReply->IOCStatus);
+				if ((ioc_status &
+					MPI_IOCSTATUS_FLAG_LOG_INFO_AVAILABLE)
+					&&
+					((log_info & SAS_LOGINFO_MASK) ==
+					SAS_LOGINFO_NEXUS_LOSS)) {
+						VirtDevice *vdevice =
+						sc->device->hostdata;
+
+					    /* flag the device as being in
+					     * device removal delay so we can
+					     * notify the midlayer to hold off
+					     * on timeout eh */
+						if (vdevice && vdevice->
+							vtarget &&
+							vdevice->vtarget->
+							raidVolume)
+							printk(KERN_INFO
+							"Skipping Raid Volume"
+							"for inDMD\n");
+						else if (vdevice &&
+							vdevice->vtarget)
+							vdevice->vtarget->
+								inDMD = 1;
+
+					    sc->result =
+						    (DID_TRANSPORT_DISRUPTED
+						    << 16);
+					    break;
 				}
 			} else if (ioc->bus_type == FC) {
 				/*
@@ -803,10 +827,11 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 				 * DID_SOFT_ERROR is set.
 				 */
 				if (ioc->bus_type == SPI) {
-					if (pScsiReq->CDB[0] == READ_6  ||
+					if ((pScsiReq->CDB[0] == READ_6  && ((pScsiReq->CDB[1] & 0x02) == 0)) ||
 					    pScsiReq->CDB[0] == READ_10 ||
 					    pScsiReq->CDB[0] == READ_12 ||
-					    pScsiReq->CDB[0] == READ_16 ||
+						(pScsiReq->CDB[0] == READ_16 &&
+						((pScsiReq->CDB[1] & 0x02) == 0)) ||
 					    pScsiReq->CDB[0] == VERIFY  ||
 					    pScsiReq->CDB[0] == VERIFY_16) {
 						if (scsi_bufflen(sc) !=
@@ -1000,7 +1025,7 @@ out:
  *
  *	Must be called while new I/Os are being queued.
  */
-static void
+void
 mptscsih_flush_running_cmds(MPT_SCSI_HOST *hd)
 {
 	MPT_ADAPTER *ioc = hd->ioc;
@@ -1031,6 +1056,7 @@ mptscsih_flush_running_cmds(MPT_SCSI_HOST *hd)
 		sc->scsi_done(sc);
 	}
 }
+EXPORT_SYMBOL(mptscsih_flush_running_cmds);
 
 /*
  *	mptscsih_search_running_cmds - Delete any commands associated
@@ -1391,11 +1417,8 @@ mptscsih_qcmd(struct scsi_cmnd *SCpnt, void (*done)(struct scsi_cmnd *))
 	dmfprintk(ioc, printk(MYIOC_s_DEBUG_FMT "qcmd: SCpnt=%p, done()=%p\n",
 		ioc->name, SCpnt, done));
 
-	if (ioc->taskmgmt_quiesce_io) {
-		dtmprintk(ioc, printk(MYIOC_s_WARN_FMT "qcmd: SCpnt=%p timeout + 60HZ\n",
-			ioc->name, SCpnt));
+	if (ioc->taskmgmt_quiesce_io)
 		return SCSI_MLQUEUE_HOST_BUSY;
-	}
 
 	/*
 	 *  Put together a MPT SCSI request...
@@ -1608,7 +1631,13 @@ mptscsih_IssueTaskMgmt(MPT_SCSI_HOST *hd, u8 type, u8 channel, u8 id, int lun,
 		return 0;
 	}
 
-	if (ioc_raw_state & MPI_DOORBELL_ACTIVE) {
+	/* DOORBELL ACTIVE check is not required if
+	*  MPI_IOCFACTS_CAPABILITY_HIGH_PRI_Q is supported.
+	*/
+
+	if (!((ioc->facts.IOCCapabilities & MPI_IOCFACTS_CAPABILITY_HIGH_PRI_Q)
+		 && (ioc->facts.MsgVersion >= MPI_VERSION_01_05)) &&
+		(ioc_raw_state & MPI_DOORBELL_ACTIVE)) {
 		printk(MYIOC_s_WARN_FMT
 			"TaskMgmt type=%x: ioc_state: "
 			"DOORBELL_ACTIVE (0x%x)!\n",
@@ -1704,9 +1733,12 @@ mptscsih_IssueTaskMgmt(MPT_SCSI_HOST *hd, u8 type, u8 channel, u8 id, int lun,
 
 	CLEAR_MGMT_STATUS(ioc->taskmgmt_cmds.status)
 	if (issue_hard_reset) {
-		printk(MYIOC_s_WARN_FMT "Issuing Reset from %s!!\n",
-			ioc->name, __func__);
-		retval = mpt_Soft_Hard_ResetHandler(ioc, CAN_SLEEP);
+		printk(MYIOC_s_WARN_FMT
+		       "Issuing Reset from %s!! doorbell=0x%08x\n",
+		       ioc->name, __func__, mpt_GetIocState(ioc, 0));
+		retval = (ioc->bus_type == SAS) ?
+			mpt_HardResetHandler(ioc, CAN_SLEEP) :
+			mpt_Soft_Hard_ResetHandler(ioc, CAN_SLEEP);
 		mpt_free_msg_frame(ioc, mf);
 	}
 
@@ -1748,7 +1780,6 @@ mptscsih_abort(struct scsi_cmnd * SCpnt)
 	int		 scpnt_idx;
 	int		 retval;
 	VirtDevice	 *vdevice;
-	ulong	 	 sn = SCpnt->serial_number;
 	MPT_ADAPTER	*ioc;
 
 	/* If we can't locate our host adapter structure, return FAILED status.
@@ -1834,8 +1865,7 @@ mptscsih_abort(struct scsi_cmnd * SCpnt)
 			 vdevice->vtarget->id, vdevice->lun,
 			 ctx2abort, mptscsih_get_tm_timeout(ioc));
 
-	if (SCPNT_TO_LOOKUP_IDX(ioc, SCpnt) == scpnt_idx &&
-	    SCpnt->serial_number == sn) {
+	if (SCPNT_TO_LOOKUP_IDX(ioc, SCpnt) == scpnt_idx) {
 		dtmprintk(ioc, printk(MYIOC_s_DEBUG_FMT
 		    "task abort: command still in active list! (sc=%p)\n",
 		    ioc->name, SCpnt));
@@ -1848,8 +1878,9 @@ mptscsih_abort(struct scsi_cmnd * SCpnt)
 	}
 
  out:
-	printk(MYIOC_s_INFO_FMT "task abort: %s (sc=%p)\n",
-	    ioc->name, ((retval == SUCCESS) ? "SUCCESS" : "FAILED"), SCpnt);
+	printk(MYIOC_s_INFO_FMT "task abort: %s (rv=%04x) (sc=%p)\n",
+	    ioc->name, ((retval == SUCCESS) ? "SUCCESS" : "FAILED"), retval,
+	    SCpnt);
 
 	return retval;
 }
@@ -1886,7 +1917,7 @@ mptscsih_dev_reset(struct scsi_cmnd * SCpnt)
 
 	vdevice = SCpnt->device->hostdata;
 	if (!vdevice || !vdevice->vtarget) {
-		retval = SUCCESS;
+		retval = 0;
 		goto out;
 	}
 
@@ -2132,6 +2163,8 @@ mptscsih_taskmgmt_complete(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf,
 		mpt_clear_taskmgmt_in_progress_flag(ioc);
 		ioc->taskmgmt_cmds.status &= ~MPT_MGMT_STATUS_PENDING;
 		complete(&ioc->taskmgmt_cmds.done);
+		if (ioc->bus_type == SAS)
+			ioc->schedule_target_reset(ioc);
 		return 1;
 	}
 	return 0;
@@ -3047,8 +3080,11 @@ mptscsih_do_cmd(MPT_SCSI_HOST *hd, INTERNAL_CMD *io)
 			goto out;
 		}
 		if (!timeleft) {
-			printk(MYIOC_s_WARN_FMT "Issuing Reset from %s!!\n",
-			    ioc->name, __func__);
+			printk(MYIOC_s_WARN_FMT
+			       "Issuing Reset from %s!! doorbell=0x%08xh"
+			       " cmd=0x%02x\n",
+			       ioc->name, __func__, mpt_GetIocState(ioc, 0),
+			       cmd);
 			mpt_Soft_Hard_ResetHandler(ioc, CAN_SLEEP);
 			mpt_free_msg_frame(ioc, mf);
 		}

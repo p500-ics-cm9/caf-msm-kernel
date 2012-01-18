@@ -142,7 +142,7 @@ static int skel_release(struct inode *inode, struct file *file)
 {
 	struct usb_skel *dev;
 
-	dev = (struct usb_skel *)file->private_data;
+	dev = file->private_data;
 	if (dev == NULL)
 		return -ENODEV;
 
@@ -162,7 +162,7 @@ static int skel_flush(struct file *file, fl_owner_t id)
 	struct usb_skel *dev;
 	int res;
 
-	dev = (struct usb_skel *)file->private_data;
+	dev = file->private_data;
 	if (dev == NULL)
 		return -ENODEV;
 
@@ -246,7 +246,7 @@ static ssize_t skel_read(struct file *file, char *buffer, size_t count,
 	int rv;
 	bool ongoing_io;
 
-	dev = (struct usb_skel *)file->private_data;
+	dev = file->private_data;
 
 	/* if we cannot read at all, return EOF */
 	if (!dev->bulk_in_urb || !count)
@@ -401,7 +401,7 @@ static ssize_t skel_write(struct file *file, const char *user_buffer,
 	char *buf = NULL;
 	size_t writesize = min(count, (size_t)MAX_TRANSFER);
 
-	dev = (struct usb_skel *)file->private_data;
+	dev = file->private_data;
 
 	/* verify that we actually have some data to write */
 	if (count == 0)
@@ -507,6 +507,7 @@ static const struct file_operations skel_fops = {
 	.open =		skel_open,
 	.release =	skel_release,
 	.flush =	skel_flush,
+	.llseek =	noop_llseek,
 };
 
 /*
@@ -554,7 +555,7 @@ static int skel_probe(struct usb_interface *interface,
 		if (!dev->bulk_in_endpointAddr &&
 		    usb_endpoint_is_bulk_in(endpoint)) {
 			/* we found a bulk in endpoint */
-			buffer_size = le16_to_cpu(endpoint->wMaxPacketSize);
+			buffer_size = usb_endpoint_maxp(endpoint);
 			dev->bulk_in_size = buffer_size;
 			dev->bulk_in_endpointAddr = endpoint->bEndpointAddress;
 			dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);

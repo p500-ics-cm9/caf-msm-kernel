@@ -185,17 +185,35 @@ static ssize_t rate_show(struct ib_port *p, struct port_attribute *unused,
 	if (ret)
 		return ret;
 
+	rate = (25 * attr.active_speed) / 10;
+
 	switch (attr.active_speed) {
-	case 2: speed = " DDR"; break;
-	case 4: speed = " QDR"; break;
+	case 2:
+		speed = " DDR";
+		break;
+	case 4:
+		speed = " QDR";
+		break;
+	case 8:
+		speed = " FDR10";
+		rate = 10;
+		break;
+	case 16:
+		speed = " FDR";
+		rate = 14;
+		break;
+	case 32:
+		speed = " EDR";
+		rate = 25;
+		break;
 	}
 
-	rate = 25 * ib_width_enum_to_int(attr.active_width) * attr.active_speed;
+	rate *= ib_width_enum_to_int(attr.active_width);
 	if (rate < 0)
 		return -EINVAL;
 
 	return sprintf(buf, "%d%s Gb/sec (%dX%s)\n",
-		       rate / 10, rate % 10 ? ".5" : "",
+		       rate, (attr.active_speed == 1) ? ".5" : "",
 		       ib_width_enum_to_int(attr.active_width), speed);
 }
 
@@ -222,6 +240,19 @@ static ssize_t phys_state_show(struct ib_port *p, struct port_attribute *unused,
 	}
 }
 
+static ssize_t link_layer_show(struct ib_port *p, struct port_attribute *unused,
+			       char *buf)
+{
+	switch (rdma_port_get_link_layer(p->ibdev, p->port_num)) {
+	case IB_LINK_LAYER_INFINIBAND:
+		return sprintf(buf, "%s\n", "InfiniBand");
+	case IB_LINK_LAYER_ETHERNET:
+		return sprintf(buf, "%s\n", "Ethernet");
+	default:
+		return sprintf(buf, "%s\n", "Unknown");
+	}
+}
+
 static PORT_ATTR_RO(state);
 static PORT_ATTR_RO(lid);
 static PORT_ATTR_RO(lid_mask_count);
@@ -230,6 +261,7 @@ static PORT_ATTR_RO(sm_sl);
 static PORT_ATTR_RO(cap_mask);
 static PORT_ATTR_RO(rate);
 static PORT_ATTR_RO(phys_state);
+static PORT_ATTR_RO(link_layer);
 
 static struct attribute *port_default_attrs[] = {
 	&port_attr_state.attr,
@@ -240,6 +272,7 @@ static struct attribute *port_default_attrs[] = {
 	&port_attr_cap_mask.attr,
 	&port_attr_rate.attr,
 	&port_attr_phys_state.attr,
+	&port_attr_link_layer.attr,
 	NULL
 };
 

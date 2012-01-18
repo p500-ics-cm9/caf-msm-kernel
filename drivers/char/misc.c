@@ -161,6 +161,7 @@ static struct class *misc_class;
 static const struct file_operations misc_fops = {
 	.owner		= THIS_MODULE,
 	.open		= misc_open,
+	.llseek		= noop_llseek,
 };
 
 /**
@@ -241,7 +242,7 @@ int misc_deregister(struct miscdevice *misc)
 {
 	int i = DYNAMIC_MINORS - misc->minor - 1;
 
-	if (list_empty(&misc->list))
+	if (WARN_ON(list_empty(&misc->list)))
 		return -EINVAL;
 
 	mutex_lock(&misc_mtx);

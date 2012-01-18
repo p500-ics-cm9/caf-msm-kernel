@@ -30,6 +30,7 @@ static int jack_switch_types[] = {
 	SW_LINEOUT_INSERT,
 	SW_JACK_PHYSICAL_INSERT,
 	SW_VIDEOOUT_INSERT,
+	SW_LINEIN_INSERT,
 };
 
 static int snd_jack_dev_free(struct snd_device *device)
@@ -141,6 +142,7 @@ int snd_jack_new(struct snd_card *card, const char *id, int type,
 
 fail_input:
 	input_free_device(jack->input_dev);
+	kfree(jack->id);
 	kfree(jack);
 	return err;
 }

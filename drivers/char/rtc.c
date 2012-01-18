@@ -80,6 +80,7 @@
 #include <linux/bcd.h>
 #include <linux/delay.h>
 #include <linux/uaccess.h>
+#include <linux/ratelimit.h>
 
 #include <asm/current.h>
 #include <asm/system.h>
@@ -961,7 +962,7 @@ static int __init rtc_init(void)
 #endif
 #ifdef CONFIG_SPARC32
 	struct device_node *ebus_dp;
-	struct of_device *op;
+	struct platform_device *op;
 #else
 	void *r;
 #ifdef RTC_IRQ
@@ -1195,10 +1196,8 @@ static void rtc_dropped_irq(unsigned long data)
 
 	spin_unlock_irq(&rtc_lock);
 
-	if (printk_ratelimit()) {
-		printk(KERN_WARNING "rtc: lost some interrupts at %ldHz.\n",
-			freq);
-	}
+	printk_ratelimited(KERN_WARNING "rtc: lost some interrupts at %ldHz.\n",
+			   freq);
 
 	/* Now we have new data */
 	wake_up_interruptible(&rtc_wait);

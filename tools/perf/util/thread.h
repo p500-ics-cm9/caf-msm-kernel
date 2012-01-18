@@ -7,7 +7,7 @@
 
 struct thread {
 	union {
-	struct rb_node		rb_node;
+		struct rb_node	 rb_node;
 		struct list_head node;
 	};
 	struct map_groups	mg;
@@ -20,7 +20,8 @@ struct thread {
 
 struct perf_session;
 
-int find_all_tid(int pid, pid_t ** all_tid);
+void thread__delete(struct thread *self);
+
 int thread__set_comm(struct thread *self, const char *comm);
 int thread__comm_len(struct thread *self);
 struct thread *perf_session__findnew(struct perf_session *self, pid_t pid);

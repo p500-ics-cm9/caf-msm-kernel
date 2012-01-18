@@ -561,6 +561,7 @@ static ssize_t reset_read(struct file *file, char __user *addr, size_t len,
 static const struct file_operations gcov_reset_fops = {
 	.write	= reset_write,
 	.read	= reset_read,
+	.llseek = noop_llseek,
 };
 
 /*
@@ -741,7 +742,7 @@ void gcov_event(enum gcov_action action, struct gcov_info *info)
 			add_info(node, info);
 		else
 			add_node(info);
-			break;
+		break;
 	case GCOV_REMOVE:
 		if (node)
 			remove_info(node, info);

@@ -387,11 +387,10 @@ static struct macio_dev * macio_add_one_device(struct macio_chip *chip,
 	/* Set the DMA ops to the ones from the PCI device, this could be
 	 * fishy if we didn't know that on PowerMac it's always direct ops
 	 * or iommu ops that will work fine
+	 *
+	 * To get all the fields, copy all archdata
 	 */
-	dev->ofdev.dev.archdata.dma_ops =
-		chip->lbus.pdev->dev.archdata.dma_ops;
-	dev->ofdev.dev.archdata.dma_data =
-		chip->lbus.pdev->dev.archdata.dma_data;
+	dev->ofdev.dev.archdata = chip->lbus.pdev->dev.archdata;
 #endif /* CONFIG_PCI */
 
 #ifdef DEBUG
@@ -493,7 +492,7 @@ static void macio_pci_add_devices(struct macio_chip *chip)
 
 	/* Add media bay devices if any */
 	if (mbdev) {
-	pnode = mbdev->ofdev.dev.of_node;
+		pnode = mbdev->ofdev.dev.of_node;
 		for (np = NULL; (np = of_get_next_child(pnode, np)) != NULL;) {
 			if (macio_skip_device(np))
 				continue;

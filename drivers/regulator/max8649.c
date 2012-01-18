@@ -155,7 +155,7 @@ static int max8649_get_voltage(struct regulator_dev *rdev)
 }
 
 static int max8649_set_voltage(struct regulator_dev *rdev,
-			       int min_uV, int max_uV)
+			       int min_uV, int max_uV, unsigned *selector)
 {
 	struct max8649_regulator_info *info = rdev_get_drvdata(rdev);
 	unsigned char data, mask;
@@ -168,6 +168,7 @@ static int max8649_set_voltage(struct regulator_dev *rdev,
 	data = (min_uV - MAX8649_DCDC_VMIN + MAX8649_DCDC_STEP - 1)
 		/ MAX8649_DCDC_STEP;
 	mask = MAX8649_VOL_MASK;
+	*selector = data & mask;
 
 	return max8649_set_bits(info->i2c, info->vol_reg, mask, data);
 }
@@ -220,7 +221,7 @@ static int max8649_enable_time(struct regulator_dev *rdev)
 	ret = (ret & MAX8649_RAMP_MASK) >> 5;
 	rate = (32 * 1000) >> ret;	/* uV/uS */
 
-	return (voltage / rate);
+	return DIV_ROUND_UP(voltage, rate);
 }
 
 static int max8649_set_mode(struct regulator_dev *rdev, unsigned int mode)
@@ -330,7 +331,7 @@ static int __devinit max8649_regulator_probe(struct i2c_client *client,
 		/* set external clock frequency */
 		info->extclk_freq = pdata->extclk_freq;
 		max8649_set_bits(info->i2c, MAX8649_SYNC, MAX8649_EXT_MASK,
-				 info->extclk_freq);
+				 info->extclk_freq << 6);
 	}
 
 	if (pdata->ramp_timing) {

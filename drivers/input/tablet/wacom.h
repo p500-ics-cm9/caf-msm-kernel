@@ -11,7 +11,7 @@
  *  Copyright (c) 2000 Daniel Egger		<egger@suse.de>
  *  Copyright (c) 2001 Frederic Lepied		<flepied@mandrakesoft.com>
  *  Copyright (c) 2004 Panagiotis Issaris	<panagiotis.issaris@mech.kuleuven.ac.be>
- *  Copyright (c) 2002-2009 Ping Cheng		<pingc@wacom.com>
+ *  Copyright (c) 2002-2011 Ping Cheng		<pingc@wacom.com>
  *
  *  ChangeLog:
  *      v0.1 (vp)  - Initial release
@@ -93,7 +93,7 @@
 /*
  * Version Information
  */
-#define DRIVER_VERSION "v1.52"
+#define DRIVER_VERSION "v1.53"
 #define DRIVER_AUTHOR "Vojtech Pavlik <vojtech@ucw.cz>"
 #define DRIVER_DESC "USB Wacom tablet driver"
 #define DRIVER_LICENSE "GPL"
@@ -103,6 +103,7 @@ MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE(DRIVER_LICENSE);
 
 #define USB_VENDOR_ID_WACOM	0x056a
+#define USB_VENDOR_ID_LENOVO	0x17ef
 
 struct wacom {
 	dma_addr_t data_dma;
@@ -113,11 +114,18 @@ struct wacom {
 	struct mutex lock;
 	bool open;
 	char phys[32];
+	struct wacom_led {
+		u8 select[2]; /* status led selector (0..3) */
+		u8 llv;       /* status led brightness no button (1..127) */
+		u8 hlv;       /* status led brightness button pressed (1..127) */
+		u8 img_lum;   /* OLED matrix display brightness */
+	} led;
 };
 
 extern const struct usb_device_id wacom_ids[];
 
 void wacom_wac_irq(struct wacom_wac *wacom_wac, size_t len);
+void wacom_setup_device_quirks(struct wacom_features *features);
 void wacom_setup_input_capabilities(struct input_dev *input_dev,
 				    struct wacom_wac *wacom_wac);
 #endif

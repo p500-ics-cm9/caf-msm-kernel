@@ -33,7 +33,7 @@
 
 #ifdef __LITTLE_ENDIAN
 #define USBH_ENABLE_INIT (USBH_ENABLE_CE | USBH_ENABLE_E | USBH_ENABLE_C)
-#elif __BIG_ENDIAN
+#elif defined(__BIG_ENDIAN)
 #define USBH_ENABLE_INIT (USBH_ENABLE_CE | USBH_ENABLE_E | USBH_ENABLE_C | \
 			  USBH_ENABLE_BE)
 #else
@@ -218,7 +218,7 @@ static int ohci_hcd_au1xxx_drv_probe(struct platform_device *pdev)
 	ohci_hcd_init(hcd_to_ohci(hcd));
 
 	ret = usb_add_hcd(hcd, pdev->resource[1].start,
-			  IRQF_DISABLED | IRQF_SHARED);
+			  IRQF_SHARED);
 	if (ret == 0) {
 		platform_set_drvdata(pdev, hcd);
 		return ret;

@@ -17,14 +17,39 @@
  *      as published by the Free Software Foundation; either version
  *      2 of the License, or (at your option) any later version.
  */
+#include <linux/ctype.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/spinlock.h>
 #include <linux/slab.h>
 #include <linux/proc_fs.h>
 
+/**
+ * struct alias_prop - Alias property in 'aliases' node
+ * @link:	List node to link the structure in aliases_lookup list
+ * @alias:	Alias property name
+ * @np:		Pointer to device_node that the alias stands for
+ * @id:		Index value from end of alias name
+ * @stem:	Alias string without the index
+ *
+ * The structure represents one alias property of 'aliases' node as
+ * an entry in aliases_lookup list.
+ */
+struct alias_prop {
+	struct list_head link;
+	const char *alias;
+	struct device_node *np;
+	int id;
+	char stem[0];
+};
+
+static LIST_HEAD(aliases_lookup);
+
 struct device_node *allnodes;
 struct device_node *of_chosen;
+struct device_node *of_aliases;
+
+static DEFINE_MUTEX(of_aliases_mutex);
 
 /* use when traversing tree through the allnext, child, sibling,
  * or parent members of struct device_node.
@@ -33,7 +58,7 @@ DEFINE_RWLOCK(devtree_lock);
 
 int of_n_addr_cells(struct device_node *np)
 {
-	const int *ip;
+	const __be32 *ip;
 
 	do {
 		if (np->parent)
@@ -49,7 +74,7 @@ EXPORT_SYMBOL(of_n_addr_cells);
 
 int of_n_size_cells(struct device_node *np)
 {
-	const int *ip;
+	const __be32 *ip;
 
 	do {
 		if (np->parent)
@@ -496,6 +521,9 @@ EXPORT_SYMBOL(of_find_node_with_property);
 const struct of_device_id *of_match_node(const struct of_device_id *matches,
 					 const struct device_node *node)
 {
+	if (!matches)
+		return NULL;
+
 	while (matches->name[0] || matches->type[0] || matches->compatible[0]) {
 		int match = 1;
 		if (matches->name[0])
@@ -545,74 +573,28 @@ struct device_node *of_find_matching_node(struct device_node *from,
 EXPORT_SYMBOL(of_find_matching_node);
 
 /**
- * of_modalias_table: Table of explicit compatible ==> modalias mappings
- *
- * This table allows particulare compatible property values to be mapped
- * to modalias strings.  This is useful for busses which do not directly
- * understand the OF device tree but are populated based on data contained
- * within the device tree.  SPI and I2C are the two current users of this
- * table.
- *
- * In most cases, devices do not need to be listed in this table because
- * the modalias value can be derived directly from the compatible table.
- * However, if for any reason a value cannot be derived, then this table
- * provides a method to override the implicit derivation.
- *
- * At the moment, a single table is used for all bus types because it is
- * assumed that the data size is small and that the compatible values
- * should already be distinct enough to differentiate between SPI, I2C
- * and other devices.
- */
-struct of_modalias_table {
-	char *of_device;
-	char *modalias;
-};
-static struct of_modalias_table of_modalias_table[] = {
-	{ "fsl,mcu-mpc8349emitx", "mcu-mpc8349emitx" },
-	{ "mmc-spi-slot", "mmc_spi" },
-};
-
-/**
  * of_modalias_node - Lookup appropriate modalias for a device node
  * @node:	pointer to a device tree node
  * @modalias:	Pointer to buffer that modalias value will be copied into
  * @len:	Length of modalias value
  *
- * Based on the value of the compatible property, this routine will determine
- * an appropriate modalias value for a particular device tree node.  Two
- * separate methods are attempted to derive a modalias value.
+ * Based on the value of the compatible property, this routine will attempt
+ * to choose an appropriate modalias value for a particular device tree node.
+ * It does this by stripping the manufacturer prefix (as delimited by a ',')
+ * from the first entry in the compatible list property.
  *
- * First method is to lookup the compatible value in of_modalias_table.
- * Second is to strip off the manufacturer prefix from the first
- * compatible entry and use the remainder as modalias
- *
- * This routine returns 0 on success
+ * This routine returns 0 on success, <0 on failure.
  */
 int of_modalias_node(struct device_node *node, char *modalias, int len)
 {
-	int i, cplen;
-	const char *compatible;
-	const char *p;
-
-	/* 1. search for exception list entry */
-	for (i = 0; i < ARRAY_SIZE(of_modalias_table); i++) {
-		compatible = of_modalias_table[i].of_device;
-		if (!of_device_is_compatible(node, compatible))
-			continue;
-		strlcpy(modalias, of_modalias_table[i].modalias, len);
-		return 0;
-	}
+	const char *compatible, *p;
+	int cplen;
 
 	compatible = of_get_property(node, "compatible", &cplen);
-	if (!compatible)
+	if (!compatible || strlen(compatible) > cplen)
 		return -ENODEV;
-
-	/* 2. take first compatible entry and strip manufacturer */
 	p = strchr(compatible, ',');
-	if (!p)
-		return -ENODEV;
-	p++;
-	strlcpy(modalias, p, len);
+	strlcpy(modalias, p ? p + 1 : compatible, len);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(of_modalias_node);
@@ -639,6 +621,101 @@ struct device_node *of_find_node_by_phandle(phandle handle)
 EXPORT_SYMBOL(of_find_node_by_phandle);
 
 /**
+ * of_property_read_u32_array - Find and read an array of 32 bit integers
+ * from a property.
+ *
+ * @np:		device node from which the property value is to be read.
+ * @propname:	name of the property to be searched.
+ * @out_value:	pointer to return value, modified only if return value is 0.
+ *
+ * Search for a property in a device node and read 32-bit value(s) from
+ * it. Returns 0 on success, -EINVAL if the property does not exist,
+ * -ENODATA if property does not have a value, and -EOVERFLOW if the
+ * property data isn't large enough.
+ *
+ * The out_value is modified only if a valid u32 value can be decoded.
+ */
+int of_property_read_u32_array(const struct device_node *np,
+			       const char *propname, u32 *out_values,
+			       size_t sz)
+{
+	struct property *prop = of_find_property(np, propname, NULL);
+	const __be32 *val;
+
+	if (!prop)
+		return -EINVAL;
+	if (!prop->value)
+		return -ENODATA;
+	if ((sz * sizeof(*out_values)) > prop->length)
+		return -EOVERFLOW;
+
+	val = prop->value;
+	while (sz--)
+		*out_values++ = be32_to_cpup(val++);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(of_property_read_u32_array);
+
+/**
+ * of_property_read_u64 - Find and read a 64 bit integer from a property
+ * @np:		device node from which the property value is to be read.
+ * @propname:	name of the property to be searched.
+ * @out_value:	pointer to return value, modified only if return value is 0.
+ *
+ * Search for a property in a device node and read a 64-bit value from
+ * it. Returns 0 on success, -EINVAL if the property does not exist,
+ * -ENODATA if property does not have a value, and -EOVERFLOW if the
+ * property data isn't large enough.
+ *
+ * The out_value is modified only if a valid u64 value can be decoded.
+ */
+int of_property_read_u64(const struct device_node *np, const char *propname,
+			 u64 *out_value)
+{
+	struct property *prop = of_find_property(np, propname, NULL);
+
+	if (!prop)
+		return -EINVAL;
+	if (!prop->value)
+		return -ENODATA;
+	if (sizeof(*out_value) > prop->length)
+		return -EOVERFLOW;
+	*out_value = of_read_number(prop->value, 2);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(of_property_read_u64);
+
+/**
+ * of_property_read_string - Find and read a string from a property
+ * @np:		device node from which the property value is to be read.
+ * @propname:	name of the property to be searched.
+ * @out_string:	pointer to null terminated return string, modified only if
+ *		return value is 0.
+ *
+ * Search for a property in a device tree node and retrieve a null
+ * terminated string value (pointer to data, not a copy). Returns 0 on
+ * success, -EINVAL if the property does not exist, -ENODATA if property
+ * does not have a value, and -EILSEQ if the string is not null-terminated
+ * within the length of the property data.
+ *
+ * The out_string pointer is modified only if a valid string can be decoded.
+ */
+int of_property_read_string(struct device_node *np, const char *propname,
+				const char **out_string)
+{
+	struct property *prop = of_find_property(np, propname, NULL);
+	if (!prop)
+		return -EINVAL;
+	if (!prop->value)
+		return -ENODATA;
+	if (strnlen(prop->value, prop->length) >= prop->length)
+		return -EILSEQ;
+	*out_string = prop->value;
+	return 0;
+}
+EXPORT_SYMBOL_GPL(of_property_read_string);
+
+/**
  * of_parse_phandle - Resolve a phandle property to a device_node pointer
  * @np: Pointer to device node holding phandle property
  * @phandle_name: Name of property holding a phandle value
@@ -651,14 +728,14 @@ EXPORT_SYMBOL(of_find_node_by_phandle);
 struct device_node *
 of_parse_phandle(struct device_node *np, const char *phandle_name, int index)
 {
-	const phandle *phandle;
+	const __be32 *phandle;
 	int size;
 
 	phandle = of_get_property(np, phandle_name, &size);
 	if ((!phandle) || (size < sizeof(*phandle) * (index + 1)))
 		return NULL;
 
-	return of_find_node_by_phandle(phandle[index]);
+	return of_find_node_by_phandle(be32_to_cpup(phandle + index));
 }
 EXPORT_SYMBOL(of_parse_phandle);
 
@@ -714,16 +791,16 @@ int of_parse_phandles_with_args(struct device_node *np, const char *list_name,
 
 	while (list < list_end) {
 		const __be32 *cells;
-		const phandle *phandle;
+		phandle phandle;
 
-		phandle = list++;
+		phandle = be32_to_cpup(list++);
 		args = list;
 
 		/* one cell hole in the list = <>; */
-		if (!*phandle)
+		if (!phandle)
 			goto next;
 
-		node = of_find_node_by_phandle(*phandle);
+		node = of_find_node_by_phandle(phandle);
 		if (!node) {
 			pr_debug("%s: could not find phandle\n",
 				 np->full_name);
@@ -965,3 +1042,99 @@ out_unlock:
 }
 #endif /* defined(CONFIG_OF_DYNAMIC) */
 
+static void of_alias_add(struct alias_prop *ap, struct device_node *np,
+			 int id, const char *stem, int stem_len)
+{
+	ap->np = np;
+	ap->id = id;
+	strncpy(ap->stem, stem, stem_len);
+	ap->stem[stem_len] = 0;
+	list_add_tail(&ap->link, &aliases_lookup);
+	pr_debug("adding DT alias:%s: stem=%s id=%i node=%s\n",
+		 ap->alias, ap->stem, ap->id, np ? np->full_name : NULL);
+}
+
+/**
+ * of_alias_scan - Scan all properties of 'aliases' node
+ *
+ * The function scans all the properties of 'aliases' node and populate
+ * the the global lookup table with the properties.  It returns the
+ * number of alias_prop found, or error code in error case.
+ *
+ * @dt_alloc:	An allocator that provides a virtual address to memory
+ *		for the resulting tree
+ */
+void of_alias_scan(void * (*dt_alloc)(u64 size, u64 align))
+{
+	struct property *pp;
+
+	of_chosen = of_find_node_by_path("/chosen");
+	if (of_chosen == NULL)
+		of_chosen = of_find_node_by_path("/chosen@0");
+	of_aliases = of_find_node_by_path("/aliases");
+	if (!of_aliases)
+		return;
+
+	for_each_property(pp, of_aliases->properties) {
+		const char *start = pp->name;
+		const char *end = start + strlen(start);
+		struct device_node *np;
+		struct alias_prop *ap;
+		int id, len;
+
+		/* Skip those we do not want to proceed */
+		if (!strcmp(pp->name, "name") ||
+		    !strcmp(pp->name, "phandle") ||
+		    !strcmp(pp->name, "linux,phandle"))
+			continue;
+
+		np = of_find_node_by_path(pp->value);
+		if (!np)
+			continue;
+
+		/* walk the alias backwards to extract the id and work out
+		 * the 'stem' string */
+		while (isdigit(*(end-1)) && end > start)
+			end--;
+		len = end - start;
+
+		if (kstrtoint(end, 10, &id) < 0)
+			continue;
+
+		/* Allocate an alias_prop with enough space for the stem */
+		ap = dt_alloc(sizeof(*ap) + len + 1, 4);
+		if (!ap)
+			continue;
+		ap->alias = start;
+		of_alias_add(ap, np, id, start, len);
+	}
+}
+
+/**
+ * of_alias_get_id - Get alias id for the given device_node
+ * @np:		Pointer to the given device_node
+ * @stem:	Alias stem of the given device_node
+ *
+ * The function travels the lookup table to get alias id for the given
+ * device_node and alias stem.  It returns the alias id if find it.
+ */
+int of_alias_get_id(struct device_node *np, const char *stem)
+{
+	struct alias_prop *app;
+	int id = -ENODEV;
+
+	mutex_lock(&of_aliases_mutex);
+	list_for_each_entry(app, &aliases_lookup, link) {
+		if (strcmp(app->stem, stem) != 0)
+			continue;
+
+		if (np == app->np) {
+			id = app->id;
+			break;
+		}
+	}
+	mutex_unlock(&of_aliases_mutex);
+
+	return id;
+}
+EXPORT_SYMBOL_GPL(of_alias_get_id);

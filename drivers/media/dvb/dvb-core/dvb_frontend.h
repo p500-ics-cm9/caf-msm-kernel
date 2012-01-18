@@ -209,6 +209,7 @@ struct dvb_tuner_ops {
 
 	int (*get_frequency)(struct dvb_frontend *fe, u32 *frequency);
 	int (*get_bandwidth)(struct dvb_frontend *fe, u32 *bandwidth);
+	int (*get_if_frequency)(struct dvb_frontend *fe, u32 *frequency);
 
 #define TUNER_STATUS_LOCKED 1
 #define TUNER_STATUS_STEREO 2
@@ -239,7 +240,6 @@ struct analog_demod_ops {
 	void (*set_params)(struct dvb_frontend *fe,
 			   struct analog_parameters *params);
 	int  (*has_signal)(struct dvb_frontend *fe);
-	int  (*is_stereo)(struct dvb_frontend *fe);
 	int  (*get_afc)(struct dvb_frontend *fe);
 	void (*tuner_status)(struct dvb_frontend *fe);
 	void (*standby)(struct dvb_frontend *fe);
@@ -260,7 +260,7 @@ struct dvb_frontend_ops {
 	int (*init)(struct dvb_frontend* fe);
 	int (*sleep)(struct dvb_frontend* fe);
 
-	int (*write)(struct dvb_frontend* fe, u8* buf, int len);
+	int (*write)(struct dvb_frontend* fe, const u8 buf[], int len);
 
 	/* if this is set, it overrides the default swzigzag */
 	int (*tune)(struct dvb_frontend* fe,
@@ -359,6 +359,9 @@ struct dtv_frontend_properties {
 
 	/* ISDB-T specifics */
 	u32			isdbs_ts_id;
+
+	/* DVB-T2 specifics */
+	u32                     dvbt2_plp_id;
 };
 
 struct dvb_frontend {

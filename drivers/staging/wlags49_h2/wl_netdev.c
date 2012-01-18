@@ -217,7 +217,7 @@ int wl_config( struct net_device *dev, struct ifmap *map )
 
     /* The only thing we care about here is a port change. Since this not needed,
        ignore the request. */
-    DBG_TRACE( DbgInfo, "%s: %s called.\n", dev->name, __FUNC__ );
+    DBG_TRACE(DbgInfo, "%s: %s called.\n", dev->name, __func__);
 
     DBG_LEAVE( DbgInfo );
     return 0;
@@ -1071,8 +1071,7 @@ void wl_multicast( struct net_device *dev )
         DBG_PRINT( "  mc_count: %d\n", netdev_mc_count(dev));
 
 	netdev_for_each_mc_addr(ha, dev)
-            DBG_PRINT("    %s (%d)\n", DbgHwAddr(ha->addr),
-		      dev->addr_len);
+	DBG_PRINT("    %pM (%d)\n", ha->addr, dev->addr_len);
     }
 #endif /* DBG */
 
@@ -1180,7 +1179,7 @@ static const struct net_device_ops wl_netdev_ops =
 
     .ndo_set_config         = &wl_config,
     .ndo_get_stats          = &wl_stats,
-    .ndo_set_multicast_list = &wl_multicast,
+    .ndo_set_rx_mode        = &wl_multicast,
 
     .ndo_init               = &wl_insert,
     .ndo_open               = &wl_adapter_open,
@@ -1586,7 +1585,7 @@ void wl_wds_device_dealloc( struct wl_private *lp )
                 dev_wds->flags &= ~( IFF_UP | IFF_RUNNING );
             }
 
-            kfree( dev_wds );
+            free_netdev(dev_wds);
             lp->wds_port[count].dev = NULL;
         }
     }
@@ -1905,8 +1904,8 @@ int wl_rx_dma( struct net_device *dev )
     DBG_FUNC("wl_rx")
     DBG_PARAM(DbgInfo, "dev", "%s (0x%p)", dev->name, dev);
 
-    if((( lp = (struct wl_private *)dev->priv ) != NULL ) &&
-          !( lp->flags & WVLAN2_UIL_BUSY )) {
+    if((( lp = dev->priv ) != NULL ) &&
+	!( lp->flags & WVLAN2_UIL_BUSY )) {
 
 #ifdef USE_RTS
         if( lp->useRTS == 1 ) {

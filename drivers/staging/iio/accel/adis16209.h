@@ -104,41 +104,31 @@
 /**
  * struct adis16209_state - device instance specific data
  * @us:			actual spi_device
- * @work_trigger_to_ring: bh for triggered event handling
- * @work_cont_thresh: CLEAN
- * @inter:		used to check if new interrupt has been triggered
- * @last_timestamp:	passing timestamp from th to bh of interrupt handler
- * @indio_dev:		industrial I/O device structure
  * @trig:		data ready trigger registered with iio
  * @tx:			transmit buffer
- * @rx:			recieve buffer
+ * @rx:			receive buffer
  * @buf_lock:		mutex to protect tx and rx
  **/
 struct adis16209_state {
-	struct spi_device		*us;
-	struct work_struct		work_trigger_to_ring;
-	struct iio_work_cont		work_cont_thresh;
-	s64				last_timestamp;
-	struct iio_dev			*indio_dev;
-	struct iio_trigger		*trig;
-	u8				*tx;
-	u8				*rx;
-	struct mutex			buf_lock;
+	struct spi_device	*us;
+	struct iio_trigger	*trig;
+	struct mutex		buf_lock;
+	u8			tx[ADIS16209_MAX_TX] ____cacheline_aligned;
+	u8			rx[ADIS16209_MAX_RX];
 };
 
-int adis16209_set_irq(struct device *dev, bool enable);
+int adis16209_set_irq(struct iio_dev *indio_dev, bool enable);
 
-#ifdef CONFIG_IIO_RING_BUFFER
-enum adis16209_scan {
-	ADIS16209_SCAN_SUPPLY,
-	ADIS16209_SCAN_ACC_X,
-	ADIS16209_SCAN_ACC_Y,
-	ADIS16209_SCAN_AUX_ADC,
-	ADIS16209_SCAN_TEMP,
-	ADIS16209_SCAN_INCLI_X,
-	ADIS16209_SCAN_INCLI_Y,
-	ADIS16209_SCAN_ROT,
-};
+#define ADIS16209_SCAN_SUPPLY	0
+#define ADIS16209_SCAN_ACC_X	1
+#define ADIS16209_SCAN_ACC_Y	2
+#define ADIS16209_SCAN_AUX_ADC	3
+#define ADIS16209_SCAN_TEMP	4
+#define ADIS16209_SCAN_INCLI_X	5
+#define ADIS16209_SCAN_INCLI_Y	6
+#define ADIS16209_SCAN_ROT	7
+
+#ifdef CONFIG_IIO_BUFFER
 
 void adis16209_remove_trigger(struct iio_dev *indio_dev);
 int adis16209_probe_trigger(struct iio_dev *indio_dev);
@@ -150,9 +140,7 @@ ssize_t adis16209_read_data_from_ring(struct device *dev,
 int adis16209_configure_ring(struct iio_dev *indio_dev);
 void adis16209_unconfigure_ring(struct iio_dev *indio_dev);
 
-int adis16209_initialize_ring(struct iio_ring_buffer *ring);
-void adis16209_uninitialize_ring(struct iio_ring_buffer *ring);
-#else /* CONFIG_IIO_RING_BUFFER */
+#else /* CONFIG_IIO_BUFFER */
 
 static inline void adis16209_remove_trigger(struct iio_dev *indio_dev)
 {
@@ -180,14 +168,5 @@ static inline void adis16209_unconfigure_ring(struct iio_dev *indio_dev)
 {
 }
 
-static inline int adis16209_initialize_ring(struct iio_ring_buffer *ring)
-{
-	return 0;
-}
-
-static inline void adis16209_uninitialize_ring(struct iio_ring_buffer *ring)
-{
-}
-
-#endif /* CONFIG_IIO_RING_BUFFER */
+#endif /* CONFIG_IIO_BUFFER */
 #endif /* SPI_ADIS16209_H_ */

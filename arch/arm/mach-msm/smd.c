@@ -15,6 +15,8 @@
  *
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/platform_device.h>
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -180,13 +182,7 @@ void smd_diag(void)
 	x = smem_find(ID_DIAG_ERR_MSG, SZ_DIAG_ERR_MSG);
 	if (x != 0) {
 		x[SZ_DIAG_ERR_MSG - 1] = 0;
-		SMD_INFO("smem: DIAG '%s'\n", x);
-	}
-
-	x = smem_get_entry(SMEM_ERR_CRASH_LOG, &size);
-	if (x != 0) {
-		x[size - 1] = 0;
-		pr_err("smem: CRASH LOG\n'%s'\n", x);
+		pr_debug("DIAG '%s'\n", x);
 	}
 }
 
@@ -517,7 +513,7 @@ static void smd_state_change(struct smd_channel *ch,
 {
 	ch->last_state = next;
 
-	SMD_INFO("SMD: ch %d %d -> %d\n", ch->n, last, next);
+	pr_debug("ch %d %d -> %d\n", ch->n, last, next);
 
 	switch (next) {
 	case SMD_SS_OPENING:
@@ -918,8 +914,8 @@ static int smd_alloc_channel(struct smd_alloc_elm *alloc_elm)
 	ch->pdev.name = ch->name;
 	ch->pdev.id = ch->type;
 
-	SMD_INFO("smd_alloc_channel() '%s' cid=%d\n",
-		 ch->name, ch->n);
+	pr_debug("smd_alloc_channel() cid=%02d size=%05d '%s'\n",
+		ch->n, ch->fifo_size, ch->name);
 
 	mutex_lock(&smd_creation_mutex);
 	list_add(&ch->ch_list, &smd_ch_closed_list);
@@ -941,9 +937,10 @@ static inline void notify_loopback_smd(void)
 	unsigned long flags;
 	struct smd_channel *ch;
 
-	spin_lock_irqsave(&smd_lock, flags);
-	list_for_each_entry(ch, &smd_ch_list_loopback, ch_list) {
-		ch->notify(ch->priv, SMD_EVENT_DATA);
+	shared = smem_find(ID_CH_ALLOC_TBL, sizeof(*shared) * 64);
+	if (!shared) {
+		pr_err("cannot find allocation table\n");
+		return;
 	}
 	spin_unlock_irqrestore(&smd_lock, flags);
 }
@@ -1568,8 +1565,19 @@ uint32_t smsm_get_state(uint32_t smsm_entry)
 int smd_core_init(void)
 {
 	int r;
-	unsigned long flags = IRQF_TRIGGER_RISING;
-	SMD_INFO("smd_core_init()\n");
+
+	/* wait for essential items to be initialized */
+	for (;;) {
+		unsigned size;
+		void *state;
+		state = smem_item(SMEM_SMSM_SHARED_STATE, &size);
+		if (size == SMSM_V1_SIZE || size == SMSM_V2_SIZE) {
+			smd_info.state = (unsigned)state;
+			break;
+		}
+	}
+
+	smd_info.ready = 1;
 
 	r = request_irq(INT_A9_M2A_0, smd_modem_irq_handler,
 			flags, "smd_dev", 0);
@@ -1643,23 +1651,17 @@ int smd_core_init(void)
 		       "enable_irq_wake failed for INT_ADSP_A11\n");
 #endif
 
-	/* we may have missed a signal while booting -- fake
-	 * an interrupt to make sure we process any existing
-	 * state
-	 */
-	smsm_irq_handler(0, 0);
-
-	SMD_INFO("smd_core_init() done\n");
-
 	return 0;
 }
 
 static int __devinit msm_smd_probe(struct platform_device *pdev)
 {
-	/* enable smd and smsm info messages */
-	msm_smd_debug_mask = 0xc;
-
-	SMD_INFO("smd probe\n");
+	/*
+	 * If we haven't waited for the ARM9 to boot up till now,
+	 * then we need to wait here. Otherwise this should just
+	 * return immediately.
+	 */
+	proc_comm_boot_wait();
 
 	INIT_WORK(&probe_work, smd_channel_probe_worker);
 

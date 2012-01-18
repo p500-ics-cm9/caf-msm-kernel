@@ -229,7 +229,7 @@ static int __devinit atmel_tsadcc_probe(struct platform_device *pdev)
 		goto err_release_mem;
 	}
 
-	err = request_irq(ts_dev->irq, atmel_tsadcc_interrupt, IRQF_DISABLED,
+	err = request_irq(ts_dev->irq, atmel_tsadcc_interrupt, 0,
 			pdev->dev.driver->name, ts_dev);
 	if (err) {
 		dev_err(&pdev->dev, "failed to allocate irq.\n");
@@ -317,7 +317,7 @@ err_unmap_regs:
 err_release_mem:
 	release_mem_region(res->start, resource_size(res));
 err_free_dev:
-	input_free_device(ts_dev->input);
+	input_free_device(input_dev);
 err_free_mem:
 	kfree(ts_dev);
 	return err;

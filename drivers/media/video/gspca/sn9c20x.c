@@ -18,10 +18,9 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-#ifdef CONFIG_INPUT
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/input.h>
-#include <linux/slab.h>
-#endif
 
 #include "gspca.h"
 #include "jpeg.h"
@@ -36,6 +35,14 @@ MODULE_LICENSE("GPL");
 
 #define MODULE_NAME "sn9c20x"
 
+/*
+ * Pixel format private data
+ */
+#define SCALE_MASK	0x0f
+#define SCALE_160x120	0
+#define SCALE_320x240	1
+#define SCALE_640x480	2
+#define SCALE_1280x1024	3
 #define MODE_RAW	0x10
 #define MODE_JPEG	0x20
 #define MODE_SXGA	0x80
@@ -89,7 +96,7 @@ struct sd {
 	u8 hstart;
 	u8 vstart;
 
-	u8 *jpeg_hdr;
+	u8 jpeg_hdr[JPEG_HDR_SZ];
 	u8 quality;
 
 	u8 flags;
@@ -144,6 +151,13 @@ static const struct dmi_system_id flip_dmi_table[] = {
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "MSI"),
 			DMI_MATCH(DMI_BOARD_NAME, "MS-1632")
+		}
+	},
+	{
+		.ident = "MSI MS-1633X",
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "MSI"),
+			DMI_MATCH(DMI_BOARD_NAME, "MS-1633X")
 		}
 	},
 	{
@@ -348,103 +362,126 @@ static const struct ctrl sd_ctrls[] = {
 
 static const struct v4l2_pix_format vga_mode[] = {
 	{160, 120, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
-		.bytesperline = 240,
-		.sizeimage = 240 * 120,
+		.bytesperline = 160,
+		.sizeimage = 160 * 120 * 4 / 8 + 590,
 		.colorspace = V4L2_COLORSPACE_JPEG,
-		.priv = 0 | MODE_JPEG},
+		.priv = SCALE_160x120 | MODE_JPEG},
 	{160, 120, V4L2_PIX_FMT_SBGGR8, V4L2_FIELD_NONE,
 		.bytesperline = 160,
 		.sizeimage = 160 * 120,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 0 | MODE_RAW},
+		.priv = SCALE_160x120 | MODE_RAW},
 	{160, 120, V4L2_PIX_FMT_SN9C20X_I420, V4L2_FIELD_NONE,
-		.bytesperline = 240,
+		.bytesperline = 160,
 		.sizeimage = 240 * 120,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 0},
+		.priv = SCALE_160x120},
 	{320, 240, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
-		.bytesperline = 480,
-		.sizeimage = 480 * 240 ,
+		.bytesperline = 320,
+		.sizeimage = 320 * 240 * 4 / 8 + 590,
 		.colorspace = V4L2_COLORSPACE_JPEG,
-		.priv = 1 | MODE_JPEG},
+		.priv = SCALE_320x240 | MODE_JPEG},
 	{320, 240, V4L2_PIX_FMT_SBGGR8, V4L2_FIELD_NONE,
 		.bytesperline = 320,
 		.sizeimage = 320 * 240 ,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 1 | MODE_RAW},
+		.priv = SCALE_320x240 | MODE_RAW},
 	{320, 240, V4L2_PIX_FMT_SN9C20X_I420, V4L2_FIELD_NONE,
-		.bytesperline = 480,
+		.bytesperline = 320,
 		.sizeimage = 480 * 240 ,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 1},
+		.priv = SCALE_320x240},
 	{640, 480, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
-		.bytesperline = 960,
-		.sizeimage = 960 * 480,
+		.bytesperline = 640,
+		.sizeimage = 640 * 480 * 4 / 8 + 590,
 		.colorspace = V4L2_COLORSPACE_JPEG,
-		.priv = 2 | MODE_JPEG},
+		.priv = SCALE_640x480 | MODE_JPEG},
 	{640, 480, V4L2_PIX_FMT_SBGGR8, V4L2_FIELD_NONE,
 		.bytesperline = 640,
 		.sizeimage = 640 * 480,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 2 | MODE_RAW},
+		.priv = SCALE_640x480 | MODE_RAW},
 	{640, 480, V4L2_PIX_FMT_SN9C20X_I420, V4L2_FIELD_NONE,
-		.bytesperline = 960,
+		.bytesperline = 640,
 		.sizeimage = 960 * 480,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 2},
+		.priv = SCALE_640x480},
 };
 
 static const struct v4l2_pix_format sxga_mode[] = {
 	{160, 120, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
-		.bytesperline = 240,
-		.sizeimage = 240 * 120,
+		.bytesperline = 160,
+		.sizeimage = 160 * 120 * 4 / 8 + 590,
 		.colorspace = V4L2_COLORSPACE_JPEG,
-		.priv = 0 | MODE_JPEG},
+		.priv = SCALE_160x120 | MODE_JPEG},
 	{160, 120, V4L2_PIX_FMT_SBGGR8, V4L2_FIELD_NONE,
 		.bytesperline = 160,
 		.sizeimage = 160 * 120,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 0 | MODE_RAW},
+		.priv = SCALE_160x120 | MODE_RAW},
 	{160, 120, V4L2_PIX_FMT_SN9C20X_I420, V4L2_FIELD_NONE,
-		.bytesperline = 240,
+		.bytesperline = 160,
 		.sizeimage = 240 * 120,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 0},
+		.priv = SCALE_160x120},
 	{320, 240, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
-		.bytesperline = 480,
-		.sizeimage = 480 * 240 ,
+		.bytesperline = 320,
+		.sizeimage = 320 * 240 * 4 / 8 + 590,
 		.colorspace = V4L2_COLORSPACE_JPEG,
-		.priv = 1 | MODE_JPEG},
+		.priv = SCALE_320x240 | MODE_JPEG},
 	{320, 240, V4L2_PIX_FMT_SBGGR8, V4L2_FIELD_NONE,
 		.bytesperline = 320,
 		.sizeimage = 320 * 240 ,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 1 | MODE_RAW},
+		.priv = SCALE_320x240 | MODE_RAW},
 	{320, 240, V4L2_PIX_FMT_SN9C20X_I420, V4L2_FIELD_NONE,
-		.bytesperline = 480,
+		.bytesperline = 320,
 		.sizeimage = 480 * 240 ,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 1},
+		.priv = SCALE_320x240},
 	{640, 480, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
-		.bytesperline = 960,
-		.sizeimage = 960 * 480,
+		.bytesperline = 640,
+		.sizeimage = 640 * 480 * 4 / 8 + 590,
 		.colorspace = V4L2_COLORSPACE_JPEG,
-		.priv = 2 | MODE_JPEG},
+		.priv = SCALE_640x480 | MODE_JPEG},
 	{640, 480, V4L2_PIX_FMT_SBGGR8, V4L2_FIELD_NONE,
 		.bytesperline = 640,
 		.sizeimage = 640 * 480,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 2 | MODE_RAW},
+		.priv = SCALE_640x480 | MODE_RAW},
 	{640, 480, V4L2_PIX_FMT_SN9C20X_I420, V4L2_FIELD_NONE,
-		.bytesperline = 960,
+		.bytesperline = 640,
 		.sizeimage = 960 * 480,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 2},
+		.priv = SCALE_640x480},
 	{1280, 1024, V4L2_PIX_FMT_SBGGR8, V4L2_FIELD_NONE,
 		.bytesperline = 1280,
-		.sizeimage = (1280 * 1024) + 64,
+		.sizeimage = 1280 * 1024,
 		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 3 | MODE_RAW | MODE_SXGA},
+		.priv = SCALE_1280x1024 | MODE_RAW | MODE_SXGA},
+};
+
+static const struct v4l2_pix_format mono_mode[] = {
+	{160, 120, V4L2_PIX_FMT_GREY, V4L2_FIELD_NONE,
+		.bytesperline = 160,
+		.sizeimage = 160 * 120,
+		.colorspace = V4L2_COLORSPACE_SRGB,
+		.priv = SCALE_160x120 | MODE_RAW},
+	{320, 240, V4L2_PIX_FMT_GREY, V4L2_FIELD_NONE,
+		.bytesperline = 320,
+		.sizeimage = 320 * 240 ,
+		.colorspace = V4L2_COLORSPACE_SRGB,
+		.priv = SCALE_320x240 | MODE_RAW},
+	{640, 480, V4L2_PIX_FMT_GREY, V4L2_FIELD_NONE,
+		.bytesperline = 640,
+		.sizeimage = 640 * 480,
+		.colorspace = V4L2_COLORSPACE_SRGB,
+		.priv = SCALE_640x480 | MODE_RAW},
+	{1280, 1024, V4L2_PIX_FMT_GREY, V4L2_FIELD_NONE,
+		.bytesperline = 1280,
+		.sizeimage = 1280 * 1024,
+		.colorspace = V4L2_COLORSPACE_SRGB,
+		.priv = SCALE_1280x1024 | MODE_RAW | MODE_SXGA},
 };
 
 static const s16 hsv_red_x[] = {
@@ -856,6 +893,9 @@ static struct i2c_reg_u8 ov7660_init[] = {
 	{0x0e, 0x80}, {0x0d, 0x08}, {0x0f, 0xc3},
 	{0x04, 0xc3}, {0x10, 0x40}, {0x11, 0x40},
 	{0x12, 0x05}, {0x13, 0xba}, {0x14, 0x2a},
+	/* HDG Set hstart and hstop, datasheet default 0x11, 0x61, using
+	   0x10, 0x61 and sd->hstart, vstart = 3, fixes ugly colored borders */
+	{0x17, 0x10}, {0x18, 0x61},
 	{0x37, 0x0f}, {0x38, 0x02}, {0x39, 0x43},
 	{0x3a, 0x00}, {0x69, 0x90}, {0x2d, 0xf6},
 	{0x2e, 0x0b}, {0x01, 0x78}, {0x02, 0x50},
@@ -1032,16 +1072,19 @@ static struct i2c_reg_u16 mt9v011_init[] = {
 };
 
 static struct i2c_reg_u16 mt9m001_init[] = {
-	{0x0d, 0x0001}, {0x0d, 0x0000}, {0x01, 0x000e},
-	{0x02, 0x0014}, {0x03, 0x03c1}, {0x04, 0x0501},
-	{0x05, 0x0083}, {0x06, 0x0006}, {0x0d, 0x0002},
-	{0x0a, 0x0000}, {0x0c, 0x0000}, {0x11, 0x0000},
-	{0x1e, 0x8000}, {0x5f, 0x8904}, {0x60, 0x0000},
-	{0x61, 0x0000}, {0x62, 0x0498}, {0x63, 0x0000},
-	{0x64, 0x0000}, {0x20, 0x111d}, {0x06, 0x00f2},
-	{0x05, 0x0013}, {0x09, 0x10f2}, {0x07, 0x0003},
-	{0x2b, 0x002a}, {0x2d, 0x002a}, {0x2c, 0x002a},
-	{0x2e, 0x0029}, {0x07, 0x0002},
+	{0x0d, 0x0001},
+	{0x0d, 0x0000},
+	{0x04, 0x0500},		/* hres = 1280 */
+	{0x03, 0x0400},		/* vres = 1024 */
+	{0x20, 0x1100},
+	{0x06, 0x0010},
+	{0x2b, 0x0024},
+	{0x2e, 0x0024},
+	{0x35, 0x0024},
+	{0x2d, 0x0020},
+	{0x2c, 0x0020},
+	{0x09, 0x0ad4},
+	{0x35, 0x0057},
 };
 
 static struct i2c_reg_u16 mt9m111_init[] = {
@@ -1082,7 +1125,7 @@ static int reg_r(struct gspca_dev *gspca_dev, u16 reg, u16 length)
 			length,
 			500);
 	if (unlikely(result < 0 || result != length)) {
-		err("Read register failed 0x%02X", reg);
+		pr_err("Read register failed 0x%02X\n", reg);
 		return -EIO;
 	}
 	return 0;
@@ -1103,7 +1146,7 @@ static int reg_w(struct gspca_dev *gspca_dev, u16 reg,
 			length,
 			500);
 	if (unlikely(result < 0 || result != length)) {
-		err("Write register failed index 0x%02X", reg);
+		pr_err("Write register failed index 0x%02X\n", reg);
 		return -EIO;
 	}
 	return 0;
@@ -1227,12 +1270,21 @@ static int i2c_r2(struct gspca_dev *gspca_dev, u8 reg, u16 *val)
 static int ov9650_init_sensor(struct gspca_dev *gspca_dev)
 {
 	int i;
+	u16 id;
 	struct sd *sd = (struct sd *) gspca_dev;
+
+	if (i2c_r2(gspca_dev, 0x1c, &id) < 0)
+		return -EINVAL;
+
+	if (id != 0x7fa2) {
+		pr_err("sensor id for ov9650 doesn't match (0x%04x)\n", id);
+		return -ENODEV;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(ov9650_init); i++) {
 		if (i2c_w1(gspca_dev, ov9650_init[i].reg,
 				ov9650_init[i].val) < 0) {
-			err("OV9650 sensor initialization failed");
+			pr_err("OV9650 sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
@@ -1249,7 +1301,7 @@ static int ov9655_init_sensor(struct gspca_dev *gspca_dev)
 	for (i = 0; i < ARRAY_SIZE(ov9655_init); i++) {
 		if (i2c_w1(gspca_dev, ov9655_init[i].reg,
 				ov9655_init[i].val) < 0) {
-			err("OV9655 sensor initialization failed");
+			pr_err("OV9655 sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
@@ -1268,12 +1320,13 @@ static int soi968_init_sensor(struct gspca_dev *gspca_dev)
 	for (i = 0; i < ARRAY_SIZE(soi968_init); i++) {
 		if (i2c_w1(gspca_dev, soi968_init[i].reg,
 				soi968_init[i].val) < 0) {
-			err("SOI968 sensor initialization failed");
+			pr_err("SOI968 sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
 	/* disable hflip and vflip */
-	gspca_dev->ctrl_dis = (1 << HFLIP_IDX) | (1 << VFLIP_IDX) | (1 << EXPOSURE_IDX);
+	gspca_dev->ctrl_dis = (1 << HFLIP_IDX) | (1 << VFLIP_IDX)
+				| (1 << EXPOSURE_IDX);
 	sd->hstart = 60;
 	sd->vstart = 11;
 	return 0;
@@ -1287,14 +1340,12 @@ static int ov7660_init_sensor(struct gspca_dev *gspca_dev)
 	for (i = 0; i < ARRAY_SIZE(ov7660_init); i++) {
 		if (i2c_w1(gspca_dev, ov7660_init[i].reg,
 				ov7660_init[i].val) < 0) {
-			err("OV7660 sensor initialization failed");
+			pr_err("OV7660 sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
-	/* disable hflip and vflip */
-	gspca_dev->ctrl_dis = (1 << HFLIP_IDX) | (1 << VFLIP_IDX);
-	sd->hstart = 1;
-	sd->vstart = 1;
+	sd->hstart = 3;
+	sd->vstart = 3;
 	return 0;
 }
 
@@ -1306,7 +1357,7 @@ static int ov7670_init_sensor(struct gspca_dev *gspca_dev)
 	for (i = 0; i < ARRAY_SIZE(ov7670_init); i++) {
 		if (i2c_w1(gspca_dev, ov7670_init[i].reg,
 				ov7670_init[i].val) < 0) {
-			err("OV7670 sensor initialization failed");
+			pr_err("OV7670 sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
@@ -1330,14 +1381,14 @@ static int mt9v_init_sensor(struct gspca_dev *gspca_dev)
 		for (i = 0; i < ARRAY_SIZE(mt9v011_init); i++) {
 			if (i2c_w2(gspca_dev, mt9v011_init[i].reg,
 					mt9v011_init[i].val) < 0) {
-				err("MT9V011 sensor initialization failed");
+				pr_err("MT9V011 sensor initialization failed\n");
 				return -ENODEV;
 			}
 		}
 		sd->hstart = 2;
 		sd->vstart = 2;
 		sd->sensor = SENSOR_MT9V011;
-		info("MT9V011 sensor detected");
+		pr_info("MT9V011 sensor detected\n");
 		return 0;
 	}
 
@@ -1348,15 +1399,17 @@ static int mt9v_init_sensor(struct gspca_dev *gspca_dev)
 		for (i = 0; i < ARRAY_SIZE(mt9v111_init); i++) {
 			if (i2c_w2(gspca_dev, mt9v111_init[i].reg,
 					mt9v111_init[i].val) < 0) {
-				err("MT9V111 sensor initialization failed");
+				pr_err("MT9V111 sensor initialization failed\n");
 				return -ENODEV;
 			}
 		}
-		gspca_dev->ctrl_dis = (1 << EXPOSURE_IDX) | (1 << AUTOGAIN_IDX) | (1 << GAIN_IDX);
+		gspca_dev->ctrl_dis = (1 << EXPOSURE_IDX)
+					| (1 << AUTOGAIN_IDX)
+					| (1 << GAIN_IDX);
 		sd->hstart = 2;
 		sd->vstart = 2;
 		sd->sensor = SENSOR_MT9V111;
-		info("MT9V111 sensor detected");
+		pr_info("MT9V111 sensor detected\n");
 		return 0;
 	}
 
@@ -1371,14 +1424,14 @@ static int mt9v_init_sensor(struct gspca_dev *gspca_dev)
 		for (i = 0; i < ARRAY_SIZE(mt9v112_init); i++) {
 			if (i2c_w2(gspca_dev, mt9v112_init[i].reg,
 					mt9v112_init[i].val) < 0) {
-				err("MT9V112 sensor initialization failed");
+				pr_err("MT9V112 sensor initialization failed\n");
 				return -ENODEV;
 			}
 		}
 		sd->hstart = 6;
 		sd->vstart = 2;
 		sd->sensor = SENSOR_MT9V112;
-		info("MT9V112 sensor detected");
+		pr_info("MT9V112 sensor detected\n");
 		return 0;
 	}
 
@@ -1392,11 +1445,12 @@ static int mt9m112_init_sensor(struct gspca_dev *gspca_dev)
 	for (i = 0; i < ARRAY_SIZE(mt9m112_init); i++) {
 		if (i2c_w2(gspca_dev, mt9m112_init[i].reg,
 				mt9m112_init[i].val) < 0) {
-			err("MT9M112 sensor initialization failed");
+			pr_err("MT9M112 sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
-	gspca_dev->ctrl_dis = (1 << EXPOSURE_IDX) | (1 << AUTOGAIN_IDX) | (1 << GAIN_IDX);
+	gspca_dev->ctrl_dis = (1 << EXPOSURE_IDX) | (1 << AUTOGAIN_IDX)
+				| (1 << GAIN_IDX);
 	sd->hstart = 0;
 	sd->vstart = 2;
 	return 0;
@@ -1409,11 +1463,12 @@ static int mt9m111_init_sensor(struct gspca_dev *gspca_dev)
 	for (i = 0; i < ARRAY_SIZE(mt9m111_init); i++) {
 		if (i2c_w2(gspca_dev, mt9m111_init[i].reg,
 				mt9m111_init[i].val) < 0) {
-			err("MT9M111 sensor initialization failed");
+			pr_err("MT9M111 sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
-	gspca_dev->ctrl_dis = (1 << EXPOSURE_IDX) | (1 << AUTOGAIN_IDX) | (1 << GAIN_IDX);
+	gspca_dev->ctrl_dis = (1 << EXPOSURE_IDX) | (1 << AUTOGAIN_IDX)
+				| (1 << GAIN_IDX);
 	sd->hstart = 0;
 	sd->vstart = 2;
 	return 0;
@@ -1423,17 +1478,36 @@ static int mt9m001_init_sensor(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	int i;
+	u16 id;
+
+	if (i2c_r2(gspca_dev, 0x00, &id) < 0)
+		return -EINVAL;
+
+	/* must be 0x8411 or 0x8421 for colour sensor and 8431 for bw */
+	switch (id) {
+	case 0x8411:
+	case 0x8421:
+		pr_info("MT9M001 color sensor detected\n");
+		break;
+	case 0x8431:
+		pr_info("MT9M001 mono sensor detected\n");
+		break;
+	default:
+		pr_err("No MT9M001 chip detected, ID = %x\n\n", id);
+		return -ENODEV;
+	}
+
 	for (i = 0; i < ARRAY_SIZE(mt9m001_init); i++) {
 		if (i2c_w2(gspca_dev, mt9m001_init[i].reg,
 				mt9m001_init[i].val) < 0) {
-			err("MT9M001 sensor initialization failed");
+			pr_err("MT9M001 sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
 	/* disable hflip and vflip */
 	gspca_dev->ctrl_dis = (1 << HFLIP_IDX) | (1 << VFLIP_IDX);
-	sd->hstart = 2;
-	sd->vstart = 2;
+	sd->hstart = 1;
+	sd->vstart = 1;
 	return 0;
 }
 
@@ -1445,7 +1519,7 @@ static int hv7131r_init_sensor(struct gspca_dev *gspca_dev)
 	for (i = 0; i < ARRAY_SIZE(hv7131r_init); i++) {
 		if (i2c_w1(gspca_dev, hv7131r_init[i].reg,
 				hv7131r_init[i].val) < 0) {
-			err("HV7131R Sensor initialization failed");
+			pr_err("HV7131R Sensor initialization failed\n");
 			return -ENODEV;
 		}
 	}
@@ -1544,6 +1618,18 @@ static int set_hvflip(struct gspca_dev *gspca_dev)
 	}
 
 	switch (sd->sensor) {
+	case SENSOR_OV7660:
+		value = 0x01;
+		if (hflip)
+			value |= 0x20;
+		if (vflip) {
+			value |= 0x10;
+			sd->vstart = 2;
+		} else
+			sd->vstart = 3;
+		reg_w1(gspca_dev, 0x1182, sd->vstart);
+		i2c_w1(gspca_dev, 0x1e, value);
+		break;
 	case SENSOR_OV9650:
 		i2c_r1(gspca_dev, 0x1e, &value);
 		value &= ~0x30;
@@ -1975,6 +2061,10 @@ static int sd_config(struct gspca_dev *gspca_dev,
 		cam->cam_mode = sxga_mode;
 		cam->nmodes = ARRAY_SIZE(sxga_mode);
 		break;
+	case SENSOR_MT9M001:
+		cam->cam_mode = mono_mode;
+		cam->nmodes = ARRAY_SIZE(mono_mode);
+		break;
 	default:
 		cam->cam_mode = vga_mode;
 		cam->nmodes = ARRAY_SIZE(vga_mode);
@@ -2015,7 +2105,7 @@ static int sd_init(struct gspca_dev *gspca_dev)
 	for (i = 0; i < ARRAY_SIZE(bridge_init); i++) {
 		value = bridge_init[i][1];
 		if (reg_w(gspca_dev, bridge_init[i][0], &value, 1) < 0) {
-			err("Device initialization failed");
+			pr_err("Device initialization failed\n");
 			return -ENODEV;
 		}
 	}
@@ -2026,7 +2116,7 @@ static int sd_init(struct gspca_dev *gspca_dev)
 		reg_w1(gspca_dev, 0x1006, 0x20);
 
 	if (reg_w(gspca_dev, 0x10c0, i2c_init, 9) < 0) {
-		err("Device initialization failed");
+		pr_err("Device initialization failed\n");
 		return -ENODEV;
 	}
 
@@ -2034,27 +2124,27 @@ static int sd_init(struct gspca_dev *gspca_dev)
 	case SENSOR_OV9650:
 		if (ov9650_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("OV9650 sensor detected");
+		pr_info("OV9650 sensor detected\n");
 		break;
 	case SENSOR_OV9655:
 		if (ov9655_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("OV9655 sensor detected");
+		pr_info("OV9655 sensor detected\n");
 		break;
 	case SENSOR_SOI968:
 		if (soi968_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("SOI968 sensor detected");
+		pr_info("SOI968 sensor detected\n");
 		break;
 	case SENSOR_OV7660:
 		if (ov7660_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("OV7660 sensor detected");
+		pr_info("OV7660 sensor detected\n");
 		break;
 	case SENSOR_OV7670:
 		if (ov7670_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("OV7670 sensor detected");
+		pr_info("OV7670 sensor detected\n");
 		break;
 	case SENSOR_MT9VPRB:
 		if (mt9v_init_sensor(gspca_dev) < 0)
@@ -2063,25 +2153,24 @@ static int sd_init(struct gspca_dev *gspca_dev)
 	case SENSOR_MT9M111:
 		if (mt9m111_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("MT9M111 sensor detected");
+		pr_info("MT9M111 sensor detected\n");
 		break;
 	case SENSOR_MT9M112:
 		if (mt9m112_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("MT9M112 sensor detected");
+		pr_info("MT9M112 sensor detected\n");
 		break;
 	case SENSOR_MT9M001:
 		if (mt9m001_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("MT9M001 sensor detected");
 		break;
 	case SENSOR_HV7131R:
 		if (hv7131r_init_sensor(gspca_dev) < 0)
 			return -ENODEV;
-		info("HV7131R sensor detected");
+		pr_info("HV7131R sensor detected\n");
 		break;
 	default:
-		info("Unsupported Sensor");
+		pr_info("Unsupported Sensor\n");
 		return -ENODEV;
 	}
 
@@ -2162,10 +2251,6 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	int height = gspca_dev->height;
 	u8 fmt, scale = 0;
 
-	sd->jpeg_hdr = kmalloc(JPEG_HDR_SZ, GFP_KERNEL);
-	if (sd->jpeg_hdr == NULL)
-		return -ENOMEM;
-
 	jpeg_define(sd->jpeg_hdr, height, width,
 			0x21);
 	jpeg_set_qual(sd->jpeg_hdr, sd->quality);
@@ -2175,30 +2260,30 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	else if (mode & MODE_JPEG)
 		fmt = 0x2c;
 	else
-		fmt = 0x2f;
+		fmt = 0x2f;	/* YUV 420 */
 
-	switch (mode & 0x0f) {
-	case 3:
+	switch (mode & SCALE_MASK) {
+	case SCALE_1280x1024:
 		scale = 0xc0;
-		info("Set 1280x1024");
+		pr_info("Set 1280x1024\n");
 		break;
-	case 2:
+	case SCALE_640x480:
 		scale = 0x80;
-		info("Set 640x480");
+		pr_info("Set 640x480\n");
 		break;
-	case 1:
+	case SCALE_320x240:
 		scale = 0x90;
-		info("Set 320x240");
+		pr_info("Set 320x240\n");
 		break;
-	case 0:
+	case SCALE_160x120:
 		scale = 0xa0;
-		info("Set 160x120");
+		pr_info("Set 160x120\n");
 		break;
 	}
 
 	configure_sensor_output(gspca_dev, mode);
-	reg_w(gspca_dev, 0x1100, sd->jpeg_hdr + JPEG_QT0_OFFSET, 64);
-	reg_w(gspca_dev, 0x1140, sd->jpeg_hdr + JPEG_QT1_OFFSET, 64);
+	reg_w(gspca_dev, 0x1100, &sd->jpeg_hdr[JPEG_QT0_OFFSET], 64);
+	reg_w(gspca_dev, 0x1140, &sd->jpeg_hdr[JPEG_QT1_OFFSET], 64);
 	reg_w(gspca_dev, 0x10fb, CLR_WIN(width, height), 5);
 	reg_w(gspca_dev, 0x1180, HW_WIN(mode, sd->hstart, sd->vstart), 6);
 	reg_w1(gspca_dev, 0x1189, scale);
@@ -2224,12 +2309,6 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 
 	reg_r(gspca_dev, 0x1061, 1);
 	reg_w1(gspca_dev, 0x1061, gspca_dev->usb_buf[0] & ~0x02);
-}
-
-static void sd_stop0(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-	kfree(sd->jpeg_hdr);
 }
 
 static void do_autoexposure(struct gspca_dev *gspca_dev, u16 avg_lum)
@@ -2315,7 +2394,7 @@ static void sd_dqcallback(struct gspca_dev *gspca_dev)
 		do_autoexposure(gspca_dev, avg_lum);
 }
 
-#ifdef CONFIG_INPUT
+#if defined(CONFIG_INPUT) || defined(CONFIG_INPUT_MODULE)
 static int sd_int_pkt_scan(struct gspca_dev *gspca_dev,
 			u8 *data,		/* interrupt packet */
 			int len)		/* interrupt packet length */
@@ -2368,8 +2447,7 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 			    (data[33] << 10);
 		avg_lum >>= 9;
 		atomic_set(&sd->avg_lum, avg_lum);
-		gspca_frame_add(gspca_dev, LAST_PACKET,
-				data, len);
+		gspca_frame_add(gspca_dev, LAST_PACKET, NULL, 0);
 		return;
 	}
 	if (gspca_dev->last_packet_type == LAST_PACKET) {
@@ -2397,9 +2475,8 @@ static const struct sd_desc sd_desc = {
 	.init = sd_init,
 	.start = sd_start,
 	.stopN = sd_stopN,
-	.stop0 = sd_stop0,
 	.pkt_scan = sd_pkt_scan,
-#ifdef CONFIG_INPUT
+#if defined(CONFIG_INPUT) || defined(CONFIG_INPUT_MODULE)
 	.int_pkt_scan = sd_int_pkt_scan,
 #endif
 	.dq_callback = sd_dqcallback,
@@ -2415,7 +2492,7 @@ static const struct sd_desc sd_desc = {
 			| (SENSOR_ ## sensor << 8) \
 			| (i2c_addr)
 
-static const __devinitdata struct usb_device_id device_table[] = {
+static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x0c45, 0x6240), SN9C20X(MT9M001, 0x5d, 0)},
 	{USB_DEVICE(0x0c45, 0x6242), SN9C20X(MT9M111, 0x5d, 0)},
 	{USB_DEVICE(0x0c45, 0x6248), SN9C20X(OV9655, 0x30, 0)},
@@ -2427,7 +2504,7 @@ static const __devinitdata struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x0c45, 0x6253), SN9C20X(OV9650, 0x30, 0)},
 	{USB_DEVICE(0x0c45, 0x6260), SN9C20X(OV7670, 0x21, 0)},
 	{USB_DEVICE(0x0c45, 0x6270), SN9C20X(MT9VPRB, 0x00, 0)},
-	{USB_DEVICE(0x0c45, 0x627b), SN9C20X(OV7660, 0x21, 0)},
+	{USB_DEVICE(0x0c45, 0x627b), SN9C20X(OV7660, 0x21, FLIP_DETECT)},
 	{USB_DEVICE(0x0c45, 0x627c), SN9C20X(HV7131R, 0x11, 0)},
 	{USB_DEVICE(0x0c45, 0x627f), SN9C20X(OV9650, 0x30, 0)},
 	{USB_DEVICE(0x0c45, 0x6280), SN9C20X(MT9M001, 0x5d, 0)},
@@ -2438,8 +2515,8 @@ static const __devinitdata struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x0c45, 0x628f), SN9C20X(OV9650, 0x30, 0)},
 	{USB_DEVICE(0x0c45, 0x62a0), SN9C20X(OV7670, 0x21, 0)},
 	{USB_DEVICE(0x0c45, 0x62b0), SN9C20X(MT9VPRB, 0x00, 0)},
-	{USB_DEVICE(0x0c45, 0x62b3), SN9C20X(OV9655, 0x30, 0)},
-	{USB_DEVICE(0x0c45, 0x62bb), SN9C20X(OV7660, 0x21, 0)},
+	{USB_DEVICE(0x0c45, 0x62b3), SN9C20X(OV9655, 0x30, LED_REVERSE)},
+	{USB_DEVICE(0x0c45, 0x62bb), SN9C20X(OV7660, 0x21, LED_REVERSE)},
 	{USB_DEVICE(0x0c45, 0x62bc), SN9C20X(HV7131R, 0x11, 0)},
 	{USB_DEVICE(0x045e, 0x00f4), SN9C20X(OV9650, 0x30, 0)},
 	{USB_DEVICE(0x145f, 0x013d), SN9C20X(OV7660, 0x21, 0)},
@@ -2480,17 +2557,11 @@ static struct usb_driver sd_driver = {
 /* -- module insert / remove -- */
 static int __init sd_mod_init(void)
 {
-	int ret;
-	ret = usb_register(&sd_driver);
-	if (ret < 0)
-		return ret;
-	info("registered");
-	return 0;
+	return usb_register(&sd_driver);
 }
 static void __exit sd_mod_exit(void)
 {
 	usb_deregister(&sd_driver);
-	info("deregistered");
 }
 
 module_init(sd_mod_init);

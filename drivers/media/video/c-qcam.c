@@ -35,7 +35,6 @@
 #include <linux/sched.h>
 #include <linux/mutex.h>
 #include <linux/jiffies.h>
-#include <linux/version.h>
 #include <linux/videodev2.h>
 #include <asm/uaccess.h>
 #include <media/v4l2-device.h>
@@ -517,28 +516,27 @@ static int qcam_querycap(struct file *file, void  *priv,
 	strlcpy(vcap->driver, qcam->v4l2_dev.name, sizeof(vcap->driver));
 	strlcpy(vcap->card, "Color Quickcam", sizeof(vcap->card));
 	strlcpy(vcap->bus_info, "parport", sizeof(vcap->bus_info));
-	vcap->version = KERNEL_VERSION(0, 0, 3);
 	vcap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_READWRITE;
-		return 0;
+	return 0;
 }
 
 static int qcam_enum_input(struct file *file, void *fh, struct v4l2_input *vin)
 {
 	if (vin->index > 0)
-			return -EINVAL;
+		return -EINVAL;
 	strlcpy(vin->name, "Camera", sizeof(vin->name));
 	vin->type = V4L2_INPUT_TYPE_CAMERA;
 	vin->audioset = 0;
 	vin->tuner = 0;
 	vin->std = 0;
 	vin->status = 0;
-		return 0;
+	return 0;
 }
 
 static int qcam_g_input(struct file *file, void *fh, unsigned int *inp)
 {
 	*inp = 0;
-		return 0;
+	return 0;
 }
 
 static int qcam_s_input(struct file *file, void *fh, unsigned int inp)
@@ -557,7 +555,7 @@ static int qcam_queryctrl(struct file *file, void *priv,
 	case V4L2_CID_GAMMA:
 		return v4l2_ctrl_query_fill(qc, 0, 255, 1, 128);
 	}
-			return -EINVAL;
+	return -EINVAL;
 }
 
 static int qcam_g_ctrl(struct file *file, void *priv,
@@ -589,7 +587,7 @@ static int qcam_s_ctrl(struct file *file, void *priv,
 	struct qcam *qcam = video_drvdata(file);
 	int ret = 0;
 
-		mutex_lock(&qcam->lock);
+	mutex_lock(&qcam->lock);
 	switch (ctrl->id) {
 	case V4L2_CID_BRIGHTNESS:
 		qcam->brightness = ctrl->value;
@@ -609,7 +607,7 @@ static int qcam_s_ctrl(struct file *file, void *priv,
 		qc_setup(qcam);
 		parport_release(qcam->pdev);
 	}
-		mutex_unlock(&qcam->lock);
+	mutex_unlock(&qcam->lock);
 	return ret;
 }
 
@@ -626,7 +624,7 @@ static int qcam_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 	pix->sizeimage = 3 * qcam->width * qcam->height;
 	/* Just a guess */
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
-		return 0;
+	return 0;
 }
 
 static int qcam_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *fmt)
@@ -665,22 +663,22 @@ static int qcam_s_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 		qcam->mode = QC_DECIMATION_4;
 		break;
 	case 120:
-			qcam->mode = QC_DECIMATION_2;
+		qcam->mode = QC_DECIMATION_2;
 		break;
 	default:
-			qcam->mode = QC_DECIMATION_1;
+		qcam->mode = QC_DECIMATION_1;
 		break;
-		}
+	}
 
-		mutex_lock(&qcam->lock);
+	mutex_lock(&qcam->lock);
 	qcam->mode |= QC_MILLIONS;
 	qcam->height = pix->height;
 	qcam->width = pix->width;
-		parport_claim_or_block(qcam->pdev);
-		qc_setup(qcam);
-		parport_release(qcam->pdev);
-		mutex_unlock(&qcam->lock);
-		return 0;
+	parport_claim_or_block(qcam->pdev);
+	qc_setup(qcam);
+	parport_release(qcam->pdev);
+	mutex_unlock(&qcam->lock);
+	return 0;
 }
 
 static int qcam_enum_fmt_vid_cap(struct file *file, void *fh, struct v4l2_fmtdesc *fmt)
@@ -718,7 +716,7 @@ static ssize_t qcam_read(struct file *file, char __user *buf,
 
 static const struct v4l2_file_operations qcam_fops = {
 	.owner		= THIS_MODULE,
-	.ioctl		= video_ioctl2,
+	.unlocked_ioctl	= video_ioctl2,
 	.read		= qcam_read,
 };
 
@@ -752,6 +750,7 @@ static struct qcam *qcam_init(struct parport *port)
 
 	if (v4l2_device_register(NULL, v4l2_dev) < 0) {
 		v4l2_err(v4l2_dev, "Could not register v4l2_device\n");
+		kfree(qcam);
 		return NULL;
 	}
 
@@ -886,6 +885,7 @@ static void __exit cqcam_cleanup(void)
 MODULE_AUTHOR("Philip Blundell <philb@gnu.org>");
 MODULE_DESCRIPTION(BANNER);
 MODULE_LICENSE("GPL");
+MODULE_VERSION("0.0.4");
 
 module_init(cqcam_init);
 module_exit(cqcam_cleanup);

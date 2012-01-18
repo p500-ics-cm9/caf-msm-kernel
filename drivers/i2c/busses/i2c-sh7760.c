@@ -101,12 +101,12 @@ struct cami2c {
 
 static inline void OUT32(struct cami2c *cam, int reg, unsigned long val)
 {
-	ctrl_outl(val, (unsigned long)cam->iobase + reg);
+	__raw_writel(val, (unsigned long)cam->iobase + reg);
 }
 
 static inline unsigned long IN32(struct cami2c *cam, int reg)
 {
-	return ctrl_inl((unsigned long)cam->iobase + reg);
+	return __raw_readl((unsigned long)cam->iobase + reg);
 }
 
 static irqreturn_t sh7760_i2c_irq(int irq, void *ptr)
@@ -502,7 +502,7 @@ static int __devinit sh7760_i2c_probe(struct platform_device *pdev)
 	}
 	OUT32(id, I2CCCR, ret);
 
-	if (request_irq(id->irq, sh7760_i2c_irq, IRQF_DISABLED,
+	if (request_irq(id->irq, sh7760_i2c_irq, 0,
 			SH7760_I2C_DEVNAME, id)) {
 		dev_err(&pdev->dev, "cannot get irq %d\n", id->irq);
 		ret = -EBUSY;

@@ -26,10 +26,10 @@
 
 static DEFINE_MUTEX(nf_ct_ecache_mutex);
 
-struct nf_ct_event_notifier *nf_conntrack_event_cb __read_mostly;
+struct nf_ct_event_notifier __rcu *nf_conntrack_event_cb __read_mostly;
 EXPORT_SYMBOL_GPL(nf_conntrack_event_cb);
 
-struct nf_exp_event_notifier *nf_expect_event_cb __read_mostly;
+struct nf_exp_event_notifier __rcu *nf_expect_event_cb __read_mostly;
 EXPORT_SYMBOL_GPL(nf_expect_event_cb);
 
 /* deliver cached events and clear cache entry - must be called with locally
@@ -63,6 +63,9 @@ void nf_ct_deliver_cached_events(struct nf_conn *ct)
 		 * this does not harm and it happens very rarely. */
 		unsigned long missed = e->missed;
 
+		if (!((events | missed) & e->ctmask))
+			goto out_unlock;
+
 		ret = notify->fcn(events | missed, &item);
 		if (unlikely(ret < 0 || missed)) {
 			spin_lock_bh(&ct->lock);
@@ -91,7 +94,7 @@ int nf_conntrack_register_notifier(struct nf_ct_event_notifier *new)
 		ret = -EBUSY;
 		goto out_unlock;
 	}
-	rcu_assign_pointer(nf_conntrack_event_cb, new);
+	RCU_INIT_POINTER(nf_conntrack_event_cb, new);
 	mutex_unlock(&nf_ct_ecache_mutex);
 	return ret;
 
@@ -109,7 +112,7 @@ void nf_conntrack_unregister_notifier(struct nf_ct_event_notifier *new)
 	notify = rcu_dereference_protected(nf_conntrack_event_cb,
 					   lockdep_is_held(&nf_ct_ecache_mutex));
 	BUG_ON(notify != new);
-	rcu_assign_pointer(nf_conntrack_event_cb, NULL);
+	RCU_INIT_POINTER(nf_conntrack_event_cb, NULL);
 	mutex_unlock(&nf_ct_ecache_mutex);
 }
 EXPORT_SYMBOL_GPL(nf_conntrack_unregister_notifier);
@@ -126,7 +129,7 @@ int nf_ct_expect_register_notifier(struct nf_exp_event_notifier *new)
 		ret = -EBUSY;
 		goto out_unlock;
 	}
-	rcu_assign_pointer(nf_expect_event_cb, new);
+	RCU_INIT_POINTER(nf_expect_event_cb, new);
 	mutex_unlock(&nf_ct_ecache_mutex);
 	return ret;
 
@@ -144,7 +147,7 @@ void nf_ct_expect_unregister_notifier(struct nf_exp_event_notifier *new)
 	notify = rcu_dereference_protected(nf_expect_event_cb,
 					   lockdep_is_held(&nf_ct_ecache_mutex));
 	BUG_ON(notify != new);
-	rcu_assign_pointer(nf_expect_event_cb, NULL);
+	RCU_INIT_POINTER(nf_expect_event_cb, NULL);
 	mutex_unlock(&nf_ct_ecache_mutex);
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_unregister_notifier);

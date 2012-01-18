@@ -146,7 +146,7 @@ bad_area:
 out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (!user_mode(regs))
-	bad_page_fault(regs, address, SIGKILL);
+		bad_page_fault(regs, address, SIGKILL);
 	else
 		pagefault_out_of_memory();
 	return;

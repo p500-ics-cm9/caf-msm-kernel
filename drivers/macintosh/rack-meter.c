@@ -283,10 +283,10 @@ static void __devinit rackmeter_init_cpu_sniffer(struct rackmeter *rm)
 	}
 }
 
-static void __devexit rackmeter_stop_cpu_sniffer(struct rackmeter *rm)
+static void rackmeter_stop_cpu_sniffer(struct rackmeter *rm)
 {
-	cancel_rearming_delayed_work(&rm->cpu[0].sniffer);
-	cancel_rearming_delayed_work(&rm->cpu[1].sniffer);
+	cancel_delayed_work_sync(&rm->cpu[0].sniffer);
+	cancel_delayed_work_sync(&rm->cpu[1].sniffer);
 }
 
 static int __devinit rackmeter_setup(struct rackmeter *rm)
@@ -585,8 +585,8 @@ static struct of_device_id rackmeter_match[] = {
 
 static struct macio_driver rackmeter_driver = {
 	.driver = {
-	.name = "rackmeter",
-	.owner = THIS_MODULE,
+		.name = "rackmeter",
+		.owner = THIS_MODULE,
 		.of_match_table = rackmeter_match,
 	},
 	.probe = rackmeter_probe,

@@ -6,6 +6,7 @@ choice
 
 config ARCH_MSM7X01A
 	bool "MSM7x00A / MSM7x01A"
+	select MACH_TROUT if !MACH_HALIBUT
 	select ARCH_MSM_ARM11
 	select MSM_VIC
 	select CPU_V6
@@ -23,53 +24,53 @@ config ARCH_MSM7X27
 	select ARCH_MSM_ARM11
 	select MSM_VIC
 	select CPU_V6
-	select MSM_REMOTE_SPINLOCK_SWP
-	select MSM_GPIOMUX
+	select GPIO_MSM_V1
+	select MSM_PROC_COMM
+	select HAS_MSM_DEBUG_UART_PHYS
 
 config ARCH_MSM7X30
 	bool "MSM7x30"
+	select MACH_MSM7X30_SURF # if !
 	select ARCH_MSM_SCORPION
 	select MSM_VIC
 	select CPU_V7
-	select MSM_REMOTE_SPINLOCK_DEKKERS
-	select ARCH_SPARSEMEM_ENABLE
-	select MEMORY_HOTPLUG
-	select MEMORY_HOTREMOVE
-	select MIGRATION
-	select ARCH_MEMORY_PROBE
-	select ARCH_MEMORY_REMOVE
-	select DONT_RESERVE_FROM_MOVABLE_ZONE
 	select MSM_GPIOMUX
-	select RESERVE_FIRST_PAGE
+	select GPIO_MSM_V1
+	select MSM_PROC_COMM
+	select HAS_MSM_DEBUG_UART_PHYS
 
 config ARCH_QSD8X50
 	bool "QSD8X50"
+	select MACH_QSD8X50_SURF if !MACH_QSD8X50A_ST1_5
 	select ARCH_MSM_SCORPION
 	select MSM_VIC
 	select CPU_V7
-	select MSM_REMOTE_SPINLOCK_LDREX
-	select EMULATE_DOMAIN_MANAGER_V7
 	select MSM_GPIOMUX
+	select GPIO_MSM_V1
+	select MSM_PROC_COMM
+	select HAS_MSM_DEBUG_UART_PHYS
 
 config ARCH_MSM8X60
 	bool "MSM8X60"
+	select MACH_MSM8X60_SURF if (!MACH_MSM8X60_RUMI3 && !MACH_MSM8X60_SIM \
+				  && !MACH_MSM8X60_FFA)
 	select ARCH_MSM_SCORPIONMP
-	select SMP_PARALLEL_START if SMP
 	select ARM_GIC
 	select CPU_V7
-	select MSM_REMOTE_SPINLOCK_LDREX
-	select ARCH_REQUIRE_GPIOLIB
-	select MSM_ADM3
-	select REGULATOR
 	select MSM_V2_TLMM
-	select MSM_PIL
-	select MSM_SCM
-	select ARCH_HAS_CPU_IDLE_WAIT
-	select MSM_DIRECT_SCLK_ACCESS
-	select MSM_RPM
-	select MSM_XO
+	select GPIO_MSM_V2
 	select MSM_GPIOMUX
-	select MSM_BUS_SCALING
+	select MSM_SCM if SMP
+
+config ARCH_MSM8960
+	bool "MSM8960"
+	select ARCH_MSM_SCORPIONMP
+	select MACH_MSM8960_SIM if (!MACH_MSM8960_RUMI3)
+	select ARM_GIC
+	select CPU_V7
+	select MSM_V2_TLMM
+	select MSM_GPIOMUX
+	select MSM_SCM if SMP
 
 endchoice
 
@@ -82,15 +83,18 @@ config MSM_SOC_REV_NONE
 	select VERIFY_PERMISSION_FAULT if ARCH_QSD8X50
 if ARCH_QSD8X50
 config MSM_SOC_REV_A
-	bool "Rev. A"
-endif
-endchoice
+	bool
+config  ARCH_MSM_SCORPIONMP
+	bool
 
 config  ARCH_MSM_ARM11
 	bool
 config  ARCH_MSM_SCORPION
 	bool
 config  ARCH_MSM_SCORPIONMP
+	bool
+
+config HAS_MSM_DEBUG_UART_PHYS
 	bool
 
 config  MSM_VIC
@@ -431,112 +435,41 @@ config MACH_QSD8X50A_ST1_5
 	help
 	  Support for the Qualcomm ST1.5.
 
-config MACH_MSM7X25_SURF
-	depends on ARCH_MSM7X25
-	depends on !MSM_STACKED_MEMORY
-	default y
-	bool "MSM7x25 SURF"
-	help
-	  Support for the Qualcomm MSM7x25 SURF eval board.
-
-config MACH_MSM7X25_FFA
-	depends on ARCH_MSM7X25
-	depends on !MSM_STACKED_MEMORY
-	default y
-	bool "MSM7x25 FFA"
-	help
-	  Support for the Qualcomm MSM7x25 FFA eval board.
-
-config MACH_MSM8X55_SURF
-       depends on ARCH_MSM7X30
-       depends on !MSM_STACKED_MEMORY
-       default y
-       bool "MSM8X55 SURF"
-       help
-         Support for the Qualcomm MSM8x55 SURF eval board.
-
-config MACH_MSM8X55_FFA
-       depends on ARCH_MSM7X30
-       depends on !MSM_STACKED_MEMORY
-       default y
-       bool "MSM8X55 FFA"
-       help
-         Support for the Qualcomm MSM8x55 FFA eval board.
-
-config MACH_MSM8X55_SVLTE_FFA
-       depends on ARCH_MSM7X30
-       depends on !MSM_STACKED_MEMORY
-       default y
-       bool "MSM8X55 SVLTE FFA"
-       help
-         Support for the Qualcomm MSM8x55 SVLTE FFA eval board.
-
-config MACH_MSM8X55_SVLTE_SURF
-       depends on ARCH_MSM7X30
-       depends on !MSM_STACKED_MEMORY
-       default y
-       bool "MSM8X55 SVLTE SURF"
-       help
-         Support for the Qualcomm MSM8x55 SVLTE SURF eval board.
-
 config MACH_MSM8X60_RUMI3
 	depends on ARCH_MSM8X60
-	default n
 	bool "MSM8x60 RUMI3"
 	help
 	  Support for the Qualcomm MSM8x60 RUMI3 emulator.
 
-config MACH_MSM8X60_SIM
-	depends on ARCH_MSM8X60
-	default n
-	bool "MSM8x60 Simulator"
-	help
-	  Support for the Qualcomm MSM8x60 simulator.
-
 config MACH_MSM8X60_SURF
 	depends on ARCH_MSM8X60
-	default n
 	bool "MSM8x60 SURF"
 	help
 	  Support for the Qualcomm MSM8x60 SURF eval board.
 
+config MACH_MSM8X60_SIM
+	depends on ARCH_MSM8X60
+	bool "MSM8x60 Simulator"
+	help
+	  Support for the Qualcomm MSM8x60 simulator.
+
 config MACH_MSM8X60_FFA
 	depends on ARCH_MSM8X60
-	default n
 	bool "MSM8x60 FFA"
 	help
 	  Support for the Qualcomm MSM8x60 FFA eval board.
 
-config MACH_MSM8X60_QRDC
-	depends on ARCH_MSM8X60
-	default n
-	bool "MSM8x60 QRDC"
+config MACH_MSM8960_SIM
+	depends on ARCH_MSM8960
+	bool "MSM8960 Simulator"
 	help
-	  Support for the Qualcomm MSM8x60 QRDC board.
+	  Support for the Qualcomm MSM8960 simulator.
 
-config MACH_MSM8X60_FLUID
-	depends on ARCH_MSM8X60
-	default n
-	bool "MSM8x60 FLUID"
+config MACH_MSM8960_RUMI3
+	depends on ARCH_MSM8960
+	bool "MSM8960 RUMI3"
 	help
-	  Support for the Qualcomm MSM8x60 FLUID platform. The FLUID is an
-	  8x60 target which has a form factor that is much closer to that
-	  of a phone than other targets. It also has a new display and
-	  touchscreen controller.
-
-config MACH_MSM8X60_CHARM_SURF
-	depends on ARCH_MSM8X60
-	default n
-	bool "MSM8x60 CHARM SURF"
-	help
-	  Support for the Qualcomm MSM8x60 Charm SURF device.
-
-config MACH_MSM8X60_CHARM_FFA
-	depends on ARCH_MSM8X60
-	default n
-	bool "MSM8x60 CHARM FFA"
-	help
-	  Support for the Qualcomm MSM8x60 Charm FFA device.
+	  Support for the Qualcomm MSM8960 RUMI3 emulator.
 
 endmenu
 
@@ -605,6 +538,7 @@ config MSM_DEBUG_UART
 	default 2 if MSM_DEBUG_UART2
 	default 3 if MSM_DEBUG_UART3
 
+if HAS_MSM_DEBUG_UART_PHYS
 choice
 	prompt "Debug UART"
 
@@ -622,6 +556,7 @@ choice
 	config MSM_DEBUG_UART3
 		bool "UART3"
 endchoice
+endif
 
 choice
 	prompt "Default Timer"
@@ -825,6 +760,9 @@ config MSM_PROC_COMM
 	help
 	  Enables a lightweight communications interface to the
 	  baseband processor.
+
+config MSM_PROC_COMM
+	bool
 
 config MSM_SMD
 	bool "MSM Shared Memory Driver (SMD)"
@@ -1403,31 +1341,12 @@ config MSM_GPIOMUX
 config MSM_V2_TLMM
 	bool
 
-config MSM_BUS_SCALING
-	bool "Bus scaling driver"
-	default n
+config MSM_GPIOMUX
+	bool
 
-config MSM_WATCHDOG
-	bool "MSM Watchdog Support"
-	depends on ARCH_MSM8X60
-	help
-		This enables the watchdog as is present on 8x60. Currently we use
-		core 0's watchdog, and reset the entire SoC if it times out. It does
-		not run during the bootup process, so it will not catch any early
-		lockups.
+config MSM_V2_TLMM
+	bool
 
-config MSM_DLOAD_MODE
-	bool "Enable download mode on crashes"
-	depends on ARCH_MSM8X60
-	default n
-	help
-		This makes the SoC enter download mode when it resets
-		due to a kernel panic. Note that this doesn't by itself
-		make the kernel reboot on a kernel panic - that must be
-		enabled via another mechanism.
-
-config MSM_SLEEP_STATS
-	bool "Enable exporting of MSM sleep stats to userspace"
-	depends on CPU_IDLE
-	default n
+config MSM_SCM
+	bool
 endif

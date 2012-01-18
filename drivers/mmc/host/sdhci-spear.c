@@ -17,6 +17,7 @@
 #include <linux/delay.h>
 #include <linux/gpio.h>
 #include <linux/highmem.h>
+#include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/platform_device.h>
@@ -50,7 +51,7 @@ static irqreturn_t sdhci_gpio_irq(int irq, void *dev_id)
 	/* val == 1 -> card removed, val == 0 -> card inserted */
 	/* if card removed - set irq for low level, else vice versa */
 	gpio_irq_type = val ? IRQF_TRIGGER_LOW : IRQF_TRIGGER_HIGH;
-	set_irq_type(irq, gpio_irq_type);
+	irq_set_irq_type(irq, gpio_irq_type);
 
 	if (sdhci->data->card_power_gpio >= 0) {
 		if (!sdhci->data->power_always_enb) {
@@ -177,8 +178,6 @@ static int __devinit sdhci_probe(struct platform_device *pdev)
 					sdhci->data->card_power_gpio);
 			goto err_pgpio_direction;
 		}
-
-		gpio_set_value(sdhci->data->card_power_gpio, 1);
 	}
 
 	if (sdhci->data->card_int_gpio >= 0) {

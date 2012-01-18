@@ -16,18 +16,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/input.h>
-#include <linux/interrupt.h>
-#include <linux/i2c.h>
-#include <linux/irq.h>
-#include <linux/keyreset.h>
-#include <linux/leds.h>
-#include <linux/switch.h>
-#include <../../../drivers/staging/android/timed_gpio.h>
-#include <linux/synaptics_i2c_rmi.h>
-#include <linux/akm8976.h>
-#include <linux/sysdev.h>
-#include <linux/android_pmem.h>
+#include <linux/clkdev.h>
 
 #include <linux/delay.h>
 
@@ -621,6 +610,8 @@ static struct platform_device trout_snd = {
 	},
 };
 
+extern int trout_init_mmc(unsigned int);
+
 static struct platform_device *devices[] __initdata = {
 	&msm_device_smd,
 	&msm_device_nand,
@@ -664,13 +655,12 @@ static void __init trout_init_irq(void)
 	msm_init_irq();
 }
 
-static uint opt_disable_uart3;
-
-module_param_named(disable_uart3, opt_disable_uart3, uint, 0);
-
-static void trout_reset(void)
+static void __init trout_fixup(struct tag *tags, char **cmdline,
+			       struct meminfo *mi)
 {
-	gpio_set_value(TROUT_GPIO_PS_HOLD, 0);
+	mi->nr_banks = 1;
+	mi->bank[0].start = PHYS_OFFSET;
+	mi->bank[0].size = (101*1024*1024);
 }
 
 static uint32_t gpio_table[] = {
@@ -773,60 +763,14 @@ static void __init trout_init(void)
 {
 	int rc;
 
-	printk("trout_init() revision=%d\n", system_rev);
-
-	/*
-	 * Setup common MSM GPIOS
-	 */
-	config_gpios();
-
-	msm_hw_reset_hook = trout_reset;
-
-	gpio_direction_output(system_rev < 5 ?
-			TROUT_4_TP_LS_EN : TROUT_5_TP_LS_EN, 0);
-
-	msm_acpu_clock_init(&trout_clock_data);
-
-#if defined(CONFIG_MSM_SERIAL_DEBUGGER)
-	if (!opt_disable_uart3)
-		msm_serial_debug_init(MSM_UART3_PHYS, INT_UART3,
-				      &msm_device_uart3.dev, 1,
-				      MSM_GPIO_TO_INT(86));
-#endif
-
-	/* gpio_configure(108, IRQF_TRIGGER_LOW); */
-
-	/* put the AF VCM in powerdown mode to avoid noise */
-	gpio_set_value(TROUT_GPIO_VCM_PWDN, 1);
-	mdelay(100);
-
-	if (system_rev < 5) {
-		trout_x_axis.info.gpio = trout_4_x_axis_gpios;
-		trout_y_axis.info.gpio = trout_4_y_axis_gpios;
-	}
-
-#ifdef CONFIG_SERIAL_MSM_HS
-	msm_device_uart_dm1.dev.platform_data = &msm_uart_dm1_pdata;
-#endif
-	msm_add_usb_devices(trout_phy_reset);
-
-	msm_add_mem_devices(&pmem_setting);
-
-	rc = trout_init_mmc(system_rev);
-	if (rc)
-		printk(KERN_CRIT "%s: MMC init failure (%d)\n", __func__, rc);
-
-#ifdef CONFIG_WIFI_MEM_PREALLOC
-	rc = trout_init_wifi_mem();
-	if (rc)
-		printk(KERN_CRIT "%s: WiFi Memory init failure (%d)\n", __func__, rc);
-#endif
-
 	platform_add_devices(devices, ARRAY_SIZE(devices));
-	i2c_register_board_info(0, i2c_devices, ARRAY_SIZE(i2c_devices));
 
-	/* SD card door should wake the device */
-	set_irq_wake(TROUT_GPIO_TO_INT(TROUT_GPIO_SD_DOOR_N), 1);
+#ifdef CONFIG_MMC
+        rc = trout_init_mmc(system_rev);
+        if (rc)
+                printk(KERN_CRIT "%s: MMC init failure (%d)\n", __func__, rc);
+#endif
+
 }
 
 static struct map_desc trout_io_desc[] __initdata = {
@@ -854,13 +798,8 @@ static void __init trout_map_io(void)
 	msm_clock_init(msm_clocks_7x01a, msm_num_clocks_7x01a);
 }
 
-MACHINE_START(TROUT, "trout")
-/* Maintainer: Brian Swetland <swetland@google.com> */
-#ifdef CONFIG_MSM_DEBUG_UART
-	.phys_io	= MSM_DEBUG_UART_PHYS,
-	.io_pg_offst	= ((MSM_DEBUG_UART_BASE) >> 18) & 0xfffc,
-#endif
-	.boot_params	= 0x10000100,
+MACHINE_START(TROUT, "HTC Dream")
+	.atag_offset	= 0x100,
 	.fixup		= trout_fixup,
 	.map_io		= trout_map_io,
 	.init_irq	= trout_init_irq,

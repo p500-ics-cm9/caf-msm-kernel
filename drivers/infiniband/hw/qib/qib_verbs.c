@@ -38,11 +38,12 @@
 #include <linux/utsname.h>
 #include <linux/rculist.h>
 #include <linux/mm.h>
+#include <linux/random.h>
 
 #include "qib.h"
 #include "qib_common.h"
 
-static unsigned int ib_qib_qp_table_size = 251;
+static unsigned int ib_qib_qp_table_size = 256;
 module_param_named(qp_table_size, ib_qib_qp_table_size, uint, S_IRUGO);
 MODULE_PARM_DESC(qp_table_size, "QP table size");
 
@@ -550,10 +551,12 @@ static void qib_qp_rcv(struct qib_ctxtdata *rcd, struct qib_ib_header *hdr,
 {
 	struct qib_ibport *ibp = &rcd->ppd->ibport_data;
 
+	spin_lock(&qp->r_lock);
+
 	/* Check for valid receive state. */
 	if (!(ib_qib_state_ops[qp->state] & QIB_PROCESS_RECV_OK)) {
 		ibp->n_pkt_drops++;
-		return;
+		goto unlock;
 	}
 
 	switch (qp->ibqp.qp_type) {
@@ -577,6 +580,9 @@ static void qib_qp_rcv(struct qib_ctxtdata *rcd, struct qib_ib_header *hdr,
 	default:
 		break;
 	}
+
+unlock:
+	spin_unlock(&qp->r_lock);
 }
 
 /**
@@ -654,17 +660,25 @@ void qib_ib_rcv(struct qib_ctxtdata *rcd, void *rhdr, void *data, u32 tlen)
 		if (atomic_dec_return(&mcast->refcount) <= 1)
 			wake_up(&mcast->wait);
 	} else {
-		qp = qib_lookup_qpn(ibp, qp_num);
-		if (!qp)
-			goto drop;
+		if (rcd->lookaside_qp) {
+			if (rcd->lookaside_qpn != qp_num) {
+				if (atomic_dec_and_test(
+					&rcd->lookaside_qp->refcount))
+					wake_up(
+					 &rcd->lookaside_qp->wait);
+					rcd->lookaside_qp = NULL;
+				}
+		}
+		if (!rcd->lookaside_qp) {
+			qp = qib_lookup_qpn(ibp, qp_num);
+			if (!qp)
+				goto drop;
+			rcd->lookaside_qp = qp;
+			rcd->lookaside_qpn = qp_num;
+		} else
+			qp = rcd->lookaside_qp;
 		ibp->n_unicast_rcv++;
 		qib_qp_rcv(rcd, hdr, lnh == QIB_LRH_GRH, data, tlen, qp);
-		/*
-		 * Notify qib_destroy_qp() if it is waiting
-		 * for us to finish.
-		 */
-		if (atomic_dec_and_test(&qp->refcount))
-			wake_up(&qp->wait);
 	}
 	return;
 
@@ -1969,6 +1983,8 @@ static void init_ibport(struct qib_pportdata *ppd)
 	ibp->z_excessive_buffer_overrun_errors =
 		cntrs.excessive_buffer_overrun_errors;
 	ibp->z_vl15_dropped = cntrs.vl15_dropped;
+	RCU_INIT_POINTER(ibp->qp0, NULL);
+	RCU_INIT_POINTER(ibp->qp1, NULL);
 }
 
 /**
@@ -1985,12 +2001,15 @@ int qib_register_ib_device(struct qib_devdata *dd)
 	int ret;
 
 	dev->qp_table_size = ib_qib_qp_table_size;
-	dev->qp_table = kzalloc(dev->qp_table_size * sizeof *dev->qp_table,
+	get_random_bytes(&dev->qp_rnd, sizeof(dev->qp_rnd));
+	dev->qp_table = kmalloc(dev->qp_table_size * sizeof *dev->qp_table,
 				GFP_KERNEL);
 	if (!dev->qp_table) {
 		ret = -ENOMEM;
 		goto err_qpt;
 	}
+	for (i = 0; i < dev->qp_table_size; i++)
+		RCU_INIT_POINTER(dev->qp_table[i], NULL);
 
 	for (i = 0; i < dd->num_pports; i++)
 		init_ibport(ppd + i);

@@ -8,7 +8,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2010, Intel Corp.
+ * Copyright (C) 2000 - 2011, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -98,7 +98,11 @@ acpi_os_table_override(struct acpi_table_header *existing_table,
 /*
  * Spinlock primitives
  */
-acpi_status acpi_os_create_lock(acpi_spinlock * out_handle);
+
+#ifndef acpi_os_create_lock
+acpi_status
+acpi_os_create_lock(acpi_spinlock *out_handle);
+#endif
 
 void acpi_os_delete_lock(acpi_spinlock handle);
 
@@ -185,6 +189,8 @@ void acpi_os_fixed_event_count(u32 fixed_event_number);
 /*
  * Threads and Scheduling
  */
+extern struct workqueue_struct *kacpi_hotplug_wq;
+
 acpi_thread_id acpi_os_get_thread_id(void);
 
 acpi_status
@@ -223,25 +229,15 @@ acpi_os_write_memory(acpi_physical_address address, u32 value, u32 width);
  */
 acpi_status
 acpi_os_read_pci_configuration(struct acpi_pci_id *pci_id,
-			       u32 reg, u32 *value, u32 width);
+			       u32 reg, u64 *value, u32 width);
 
 acpi_status
 acpi_os_write_pci_configuration(struct acpi_pci_id *pci_id,
 				u32 reg, u64 value, u32 width);
 
 /*
- * Interim function needed for PCI IRQ routing
- */
-void
-acpi_os_derive_pci_id(acpi_handle device,
-		      acpi_handle region, struct acpi_pci_id **pci_id);
-
-/*
  * Miscellaneous
  */
-acpi_status acpi_os_validate_interface(char *interface);
-acpi_status acpi_osi_invalidate(char* interface);
-
 acpi_status
 acpi_os_validate_address(u8 space_id, acpi_physical_address address,
 			 acpi_size length, char *name);

@@ -8,7 +8,6 @@
  *	it under the terms of the GNU General Public License as published by
  *	the Free Software Foundation; either version 2 of the License, or
  *	(at your option) any later version.
- *
  */
 
 #include <linux/kernel.h>
@@ -19,7 +18,7 @@
 #include <linux/videodev2.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 
 #include "uvc.h"
 
@@ -120,7 +119,7 @@ static int uvc_free_buffers(struct uvc_video_queue *queue)
  */
 static int
 uvc_alloc_buffers(struct uvc_video_queue *queue, unsigned int nbuffers,
-		unsigned int buflength)
+		  unsigned int buflength)
 {
 	unsigned int bufsize = PAGE_ALIGN(buflength);
 	unsigned int i;
@@ -364,7 +363,7 @@ done:
  */
 static unsigned int
 uvc_queue_poll(struct uvc_video_queue *queue, struct file *file,
-		poll_table *wait)
+	       poll_table *wait)
 {
 	struct uvc_buffer *buf;
 	unsigned int mask = 0;

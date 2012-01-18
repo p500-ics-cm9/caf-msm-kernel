@@ -762,8 +762,10 @@ static struct ccw_device_id raw3215_id[] = {
 };
 
 static struct ccw_driver raw3215_ccw_driver = {
-	.name		= "3215",
-	.owner		= THIS_MODULE,
+	.driver = {
+		.name	= "3215",
+		.owner	= THIS_MODULE,
+	},
 	.ids		= raw3215_id,
 	.probe		= &raw3215_probe,
 	.remove		= &raw3215_remove,
@@ -772,6 +774,7 @@ static struct ccw_driver raw3215_ccw_driver = {
 	.freeze		= &raw3215_pm_stop,
 	.thaw		= &raw3215_pm_start,
 	.restore	= &raw3215_pm_start,
+	.int_class	= IOINT_C15,
 };
 
 #ifdef CONFIG_TN3215_CONSOLE

@@ -401,8 +401,8 @@ static void release_kmmio_fault_page(unsigned long page,
 	if (!f->count) {
 		disarm_kmmio_fault_page(f);
 		if (!f->scheduled_for_release) {
-		f->release_next = *release_list;
-		*release_list = f;
+			f->release_next = *release_list;
+			*release_list = f;
 			f->scheduled_for_release = true;
 		}
 	}

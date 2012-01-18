@@ -18,7 +18,6 @@
 #define __ARCH_ARM_MACH_MSM_CLOCK_H
 
 #include <linux/init.h>
-#include <linux/types.h>
 #include <linux/list.h>
 #include <mach/clk.h>
 
@@ -47,7 +46,7 @@ struct clk_ops {
 	int (*measure_rate)(unsigned id);
 	unsigned (*is_enabled)(unsigned id);
 	long (*round_rate)(unsigned id, unsigned rate);
-	int (*set_parent)(unsigned id, struct clk *parent);
+	bool (*is_local)(unsigned id);
 };
 
 struct clk {
@@ -57,8 +56,6 @@ struct clk {
 	struct clk_ops *ops;
 	const char *dbg_name;
 	struct list_head list;
-	struct hlist_head voters;
-	const char *aggregator;
 };
 
 #define OFF CLKFLAG_AUTO_OFF
@@ -66,48 +63,12 @@ struct clk {
 #define CLK_MAX CLKFLAG_MAX
 #define CLK_MINMAX (CLK_MIN | CLK_MAX)
 
-enum clkvote_client {
-	CLKVOTE_ACPUCLK = 0,
-	CLKVOTE_PMQOS,
-	CLKVOTE_MAX,
-};
-
-#ifdef CONFIG_ARCH_MSM7X30
-void __init msm_clk_soc_set_ops(struct clk *clk);
-#else
-static inline void __init msm_clk_soc_set_ops(struct clk *clk) { }
-#endif
-
-#if defined(CONFIG_ARCH_MSM7X30) || defined(CONFIG_ARCH_MSM8X60)
-void __init msm_clk_soc_init(void);
-#else
-static inline void __init msm_clk_soc_init(void) { }
-#endif
-
 #ifdef CONFIG_DEBUG_FS
-int __init clock_debug_init(struct list_head *head);
+int __init clock_debug_init(void);
 int __init clock_debug_add(struct clk *clock);
-void clock_debug_print_enabled(void);
 #else
-static inline int __init clock_debug_init(struct list_head *head) { return 0; }
+static inline int __init clock_debug_init(void) { return 0; }
 static inline int __init clock_debug_add(struct clk *clock) { return 0; }
-static inline void clock_debug_print_enabled(void) { return; }
 #endif
 
-extern struct clk_ops clk_ops_remote;
-
-static inline int msm_clock_require_tcxo(unsigned long *reason, int nbits)
-{
-	return 0;
-}
-
-static inline int msm_clock_get_name(uint32_t id, char *name, uint32_t size)
-{
-	return 0;
-}
-
-int ebi1_clk_set_min_rate(enum clkvote_client client, unsigned long rate);
-unsigned long clk_get_max_axi_khz(void);
-
 #endif
-

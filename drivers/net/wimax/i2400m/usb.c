@@ -514,7 +514,7 @@ int i2400mu_probe(struct usb_interface *iface,
 #ifdef CONFIG_PM
 	iface->needs_remote_wakeup = 1;		/* autosuspend (15s delay) */
 	device_init_wakeup(dev, 1);
-	usb_dev->autosuspend_delay = 15 * HZ;
+	pm_runtime_set_autosuspend_delay(&usb_dev->dev, 15000);
 	usb_enable_autosuspend(usb_dev);
 #endif
 
@@ -599,7 +599,7 @@ void i2400mu_disconnect(struct usb_interface *iface)
  *
  *    As well, the device might refuse going to sleep for whichever
  *    reason. In this case we just fail. For system suspend/hibernate,
- *    we *can't* fail. We check PM_EVENT_AUTO to see if the
+ *    we *can't* fail. We check PMSG_IS_AUTO to see if the
  *    suspend call comes from the USB stack or from the system and act
  *    in consequence.
  *
@@ -615,7 +615,7 @@ int i2400mu_suspend(struct usb_interface *iface, pm_message_t pm_msg)
 	struct i2400m *i2400m = &i2400mu->i2400m;
 
 #ifdef CONFIG_PM
-	if (pm_msg.event & PM_EVENT_AUTO)
+	if (PMSG_IS_AUTO(pm_msg))
 		is_autosuspend = 1;
 #endif
 
@@ -780,7 +780,6 @@ module_init(i2400mu_driver_init);
 static
 void __exit i2400mu_driver_exit(void)
 {
-	flush_scheduled_work();	/* for the stuff we schedule from sysfs.c */
 	usb_deregister(&i2400mu_driver);
 }
 module_exit(i2400mu_driver_exit);

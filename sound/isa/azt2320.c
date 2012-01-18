@@ -188,7 +188,7 @@ static int __devinit snd_card_azt2320_probe(int dev,
 				sizeof(struct snd_card_azt2320), &card);
 	if (error < 0)
 		return error;
-	acard = (struct snd_card_azt2320 *)card->private_data;
+	acard = card->private_data;
 
 	if ((error = snd_card_azt2320_pnp(dev, acard, pcard, pid))) {
 		snd_card_free(card);
@@ -234,8 +234,7 @@ static int __devinit snd_card_azt2320_probe(int dev,
 	if (mpu_port[dev] > 0 && mpu_port[dev] != SNDRV_AUTO_PORT) {
 		if (snd_mpu401_uart_new(card, 0, MPU401_HW_AZT2320,
 				mpu_port[dev], 0,
-				mpu_irq[dev], IRQF_DISABLED,
-				NULL) < 0)
+				mpu_irq[dev], NULL) < 0)
 			snd_printk(KERN_ERR PFX "no MPU-401 device at 0x%lx\n", mpu_port[dev]);
 	}
 

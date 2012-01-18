@@ -16,6 +16,8 @@
  *
  * Copyright (C) 2006-2008 Intel Corporation
  * Copyright IBM Corporation, 2008
+ * Copyright 2010 Red Hat, Inc. and/or its affiliates.
+ *
  * Author: Allen M. Kay <allen.m.kay@intel.com>
  * Author: Weidong Han <weidong.han@intel.com>
  * Author: Ben-Ami Yassour <benami@il.ibm.com>
@@ -27,6 +29,12 @@
 #include <linux/dmar.h>
 #include <linux/iommu.h>
 #include <linux/intel-iommu.h>
+
+static int allow_unsafe_assigned_interrupts;
+module_param_named(allow_unsafe_assigned_interrupts,
+		   allow_unsafe_assigned_interrupts, bool, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(allow_unsafe_assigned_interrupts,
+ "Enable device assignment on platforms without interrupt remapping support.");
 
 static int kvm_iommu_unmap_memslots(struct kvm *kvm);
 static void kvm_iommu_put_pages(struct kvm *kvm,
@@ -106,7 +114,7 @@ int kvm_iommu_map_pages(struct kvm *kvm, struct kvm_memory_slot *slot)
 			      get_order(page_size), flags);
 		if (r) {
 			printk(KERN_ERR "kvm_iommu_map_address:"
-			       "iommu failed to map pfn=%lx\n", pfn);
+			       "iommu failed to map pfn=%llx\n", pfn);
 			goto unmap_pages;
 		}
 
@@ -124,9 +132,10 @@ unmap_pages:
 
 static int kvm_iommu_map_memslots(struct kvm *kvm)
 {
-	int i, r = 0;
+	int i, idx, r = 0;
 	struct kvm_memslots *slots;
 
+	idx = srcu_read_lock(&kvm->srcu);
 	slots = kvm_memslots(kvm);
 
 	for (i = 0; i < slots->nmemslots; i++) {
@@ -134,6 +143,7 @@ static int kvm_iommu_map_memslots(struct kvm *kvm)
 		if (r)
 			break;
 	}
+	srcu_read_unlock(&kvm->srcu, idx);
 
 	return r;
 }
@@ -177,6 +187,8 @@ int kvm_assign_device(struct kvm *kvm,
 			goto out_unmap;
 	}
 
+	pdev->dev_flags |= PCI_DEV_FLAGS_ASSIGNED;
+
 	printk(KERN_DEBUG "assign device %x:%x:%x.%x\n",
 		assigned_dev->host_segnr,
 		assigned_dev->host_busnr,
@@ -205,6 +217,8 @@ int kvm_deassign_device(struct kvm *kvm,
 
 	iommu_detach_device(domain, &pdev->dev);
 
+	pdev->dev_flags &= ~PCI_DEV_FLAGS_ASSIGNED;
+
 	printk(KERN_DEBUG "deassign device %x:%x:%x.%x\n",
 		assigned_dev->host_segnr,
 		assigned_dev->host_busnr,
@@ -218,14 +232,26 @@ int kvm_iommu_map_guest(struct kvm *kvm)
 {
 	int r;
 
-	if (!iommu_found()) {
+	if (!iommu_present(&pci_bus_type)) {
 		printk(KERN_ERR "%s: iommu not found\n", __func__);
 		return -ENODEV;
 	}
 
-	kvm->arch.iommu_domain = iommu_domain_alloc();
+	kvm->arch.iommu_domain = iommu_domain_alloc(&pci_bus_type);
 	if (!kvm->arch.iommu_domain)
 		return -ENOMEM;
+
+	if (!allow_unsafe_assigned_interrupts &&
+	    !iommu_domain_has_cap(kvm->arch.iommu_domain,
+				  IOMMU_CAP_INTR_REMAP)) {
+		printk(KERN_WARNING "%s: No interrupt remapping support,"
+		       " disallowing device assignment."
+		       " Re-enble with \"allow_unsafe_assigned_interrupts=1\""
+		       " module option.\n", __func__);
+		iommu_domain_free(kvm->arch.iommu_domain);
+		kvm->arch.iommu_domain = NULL;
+		return -EPERM;
+	}
 
 	r = kvm_iommu_map_memslots(kvm);
 	if (r)
@@ -283,15 +309,17 @@ static void kvm_iommu_put_pages(struct kvm *kvm,
 
 static int kvm_iommu_unmap_memslots(struct kvm *kvm)
 {
-	int i;
+	int i, idx;
 	struct kvm_memslots *slots;
 
+	idx = srcu_read_lock(&kvm->srcu);
 	slots = kvm_memslots(kvm);
 
 	for (i = 0; i < slots->nmemslots; i++) {
 		kvm_iommu_put_pages(kvm, slots->memslots[i].base_gfn,
 				    slots->memslots[i].npages);
 	}
+	srcu_read_unlock(&kvm->srcu, idx);
 
 	return 0;
 }
